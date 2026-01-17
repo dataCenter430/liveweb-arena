@@ -77,27 +77,69 @@ class TaostatsPlugin(BasePlugin):
 - Subnet names are displayed with "SN" prefix (e.g., SN27 for Nodexo)
 """
 
-    async def generate_task(self, seed: int) -> SubTask:
-        """Generate a Taostats query task"""
+    async def generate_task(
+        self,
+        seed: int,
+        template_name: str = None,
+        metric: str = None,
+    ) -> SubTask:
+        """
+        Generate a Taostats query task.
+
+        Args:
+            seed: Random seed for task generation
+            template_name: Specific template to use (e.g., "taostats_subnet_info")
+            metric: Specific metric to query (e.g., "price", "name")
+        """
         rng = random.Random(seed)
 
         if not self._template_instances:
             raise ValueError("No templates available")
 
-        template_name = rng.choice(list(self._template_instances.keys()))
-        template = self._template_instances[template_name]
+        # Select template
+        if template_name and template_name in self._template_instances:
+            selected_template_name = template_name
+        else:
+            selected_template_name = rng.choice(list(self._template_instances.keys()))
 
-        question: GeneratedQuestion = template.generate(seed)
+        template = self._template_instances[selected_template_name]
+
+        # Generate question with optional metric constraint
+        if metric:
+            # Find a seed that generates the desired metric
+            question = self._generate_with_metric(template, seed, metric)
+        else:
+            question = template.generate(seed)
 
         return SubTask(
             plugin_name=self.name,
             intent=question.question_text,
             validation_info={
-                "template_name": template_name,
+                "template_name": selected_template_name,
                 **question.validation_info,
             },
             answer_tag="",
         )
+
+    def _generate_with_metric(
+        self,
+        template: QuestionTemplate,
+        base_seed: int,
+        target_metric: str,
+    ) -> GeneratedQuestion:
+        """Generate a question with specific metric by searching seeds."""
+        # Try up to 500 seeds to find a match
+        for offset in range(500):
+            seed = base_seed + offset
+            question = template.generate(seed)
+            # Check if this question has the target metric
+            info = question.validation_info
+            if info.get("metric") == target_metric:
+                return question
+            if info.get("analysis_type") == target_metric:
+                return question
+        # Fallback to base seed if no match found
+        return template.generate(base_seed)
 
     async def validate_answer(
         self, answer: str, validation_info: dict

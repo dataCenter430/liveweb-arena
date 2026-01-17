@@ -71,6 +71,8 @@ class AgentLoop:
         self._trajectory = []
         self._total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         self._final_answer = None
+        self._loop_detected = False
+        self._max_steps_reached = False
         self._policy.reset_repair_count()
 
         system_prompt = self._policy.build_system_prompt(task)
@@ -78,6 +80,7 @@ class AgentLoop:
 
         obs = await self._session.goto("about:blank")
         consecutive_errors = 0
+        recent_actions: List[str] = []  # Track recent actions for loop detection
 
         for step_num in range(self._max_steps):
             log("Agent", f"Step {step_num + 1}/{self._max_steps}, url={obs.url[:50]}")
@@ -124,7 +127,26 @@ class AgentLoop:
             if action is None:
                 action = BrowserAction(action_type="wait", params={"seconds": 0.5})
                 action_result = "Parse failed"
-            elif action.action_type == "stop":
+            else:
+                # Loop detection: check if same action repeated 3+ times
+                action_key = f"{action.action_type}:{action.params}"
+                recent_actions.append(action_key)
+                if len(recent_actions) > 3:
+                    recent_actions.pop(0)
+
+                if len(recent_actions) >= 3 and len(set(recent_actions)) == 1:
+                    log("Agent", f"Loop detected: same action repeated 3 times", force=True)
+                    self._loop_detected = True
+                    self._trajectory.append(TrajectoryStep(
+                        step_num=step_num,
+                        observation=current_obs,
+                        thought=thought,
+                        action=action,
+                        action_result="Loop detected - task failed",
+                    ))
+                    break
+
+            if action.action_type == "stop":
                 final_params = action.params.get("final", {})
                 self._final_answer = final_params if final_params else action.params
                 log("Agent", f"Completed: {self._final_answer}")
@@ -152,6 +174,19 @@ class AgentLoop:
                 action=action,
                 action_result=action_result,
             ))
+        else:
+            # Loop completed without break - max_steps reached
+            if self._final_answer is None and not self._loop_detected:
+                self._max_steps_reached = True
+                log("Agent", f"Max steps ({self._max_steps}) reached without completion", force=True)
 
         log("Agent", f"Finished with {len(self._trajectory)} steps")
         return self._trajectory, self._final_answer, self.get_usage()
+
+    def is_loop_detected(self) -> bool:
+        """Check if agent was stuck in a loop"""
+        return self._loop_detected
+
+    def is_max_steps_reached(self) -> bool:
+        """Check if max steps was reached without completion"""
+        return self._max_steps_reached

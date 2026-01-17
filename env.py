@@ -63,6 +63,8 @@ class Actor:
         temperature: float = 0.7,
         max_concurrency: int = 2,
         validation_model: Optional[str] = None,
+        template_name: Optional[str] = None,
+        metric: Optional[str] = None,
     ) -> dict:
         """
         Run a single evaluation.
@@ -79,6 +81,8 @@ class Actor:
             temperature: LLM temperature
             max_concurrency: Container-local concurrency limit
             validation_model: Model for answer validation (default: same as model)
+            template_name: Optional specific template to use
+            metric: Optional specific metric/type to query
 
         Returns:
             Evaluation result dict with scores and metadata
@@ -109,6 +113,8 @@ class Actor:
                     timeout=timeout,
                     temperature=temperature,
                     validation_model=validation_model,
+                    template_name=template_name,
+                    metric=metric,
                 )
             except Exception as e:
                 import traceback
@@ -141,6 +147,8 @@ class Actor:
         timeout: int,
         temperature: float,
         validation_model: Optional[str] = None,
+        template_name: Optional[str] = None,
+        metric: Optional[str] = None,
     ) -> dict:
         """Internal evaluation logic"""
         await self._ensure_browser()
@@ -149,6 +157,8 @@ class Actor:
             seed=seed,
             num_subtasks=num_subtasks,
             plugin_names=plugins,
+            template_name=template_name,
+            metric=metric,
         )
         log("Actor", f"Generated {len(task.subtasks)} subtasks, seed={seed}")
 
@@ -164,13 +174,30 @@ class Actor:
                 max_steps=max_steps,
             )
 
+            # Fetch ground truths BEFORE agent starts (same time point as AI query)
+            ground_truths = await self._fetch_ground_truths_with_retry(task.subtasks)
+            log("Actor", f"Ground truths fetched: {list(ground_truths.keys())}")
+
+            # Track failure reasons
+            failure_reason = None
+            agent_timeout = False
+
             try:
                 trajectory, final_answer, usage = await asyncio.wait_for(
                     agent_loop.run(task=task, model=model, temperature=temperature, seed=seed),
                     timeout=timeout,
                 )
+                # Check for loop detection or max steps
+                if agent_loop.is_loop_detected():
+                    failure_reason = "loop_detected"
+                    log("Actor", "Agent stuck in loop - marking as failed", force=True)
+                elif agent_loop.is_max_steps_reached():
+                    failure_reason = "max_steps_reached"
+                    log("Actor", "Max steps reached without completion - marking as failed", force=True)
             except asyncio.TimeoutError:
-                log("Actor", f"Timeout after {timeout}s", force=True)
+                agent_timeout = True
+                failure_reason = "agent_timeout"
+                log("Actor", f"Agent timeout after {timeout}s", force=True)
                 trajectory = agent_loop.get_trajectory()
                 final_answer = agent_loop.get_final_answer()
                 usage = agent_loop.get_usage()
@@ -179,9 +206,6 @@ class Actor:
             parser = AnswerParser()
             parsed_answers = parser.parse_answers(final_answer, num_subtasks)
             output_format = parser.get_output_format(final_answer)
-
-            # Collect ground truths and validation rules from plugins with retry
-            ground_truths = await self._fetch_ground_truths_with_retry(task.subtasks)
             validation_rules = {}
             for subtask in task.subtasks:
                 plugin = self.task_manager.get_plugin(subtask.plugin_name)
@@ -203,12 +227,16 @@ class Actor:
             )
 
             # Calculate overall score
-            if answer_validations:
+            if failure_reason:
+                # Agent failed (loop, max_steps, timeout) - score is 0
+                total_score = 0.0
+                success = False
+            elif answer_validations:
                 total_score = sum(v["score"] for v in answer_validations) / len(answer_validations)
+                success = total_score >= 0.8
             else:
                 total_score = 0.0
-
-            success = total_score >= 0.8
+                success = False
 
             # Get final URL
             final_url = None
@@ -232,6 +260,7 @@ class Actor:
                     "usage": usage,
                     "answer_details": answer_validations,
                     "conversation": conversation,
+                    "failure_reason": failure_reason,
                 },
             }
 
@@ -265,8 +294,15 @@ class Actor:
             for attempt in range(max_retries):
                 try:
                     gt_result = await plugin.get_ground_truth(subtask.validation_info)
-                    ground_truths[subtask.answer_tag] = gt_result
-                    break
+                    # Treat None as failure - ground truth must be available
+                    if gt_result is not None:
+                        ground_truths[subtask.answer_tag] = gt_result
+                        break
+                    else:
+                        last_error = Exception("Ground truth returned None")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay * (attempt + 1))
+                        continue
                 except Exception as e:
                     last_error = e
                     if attempt < max_retries - 1:

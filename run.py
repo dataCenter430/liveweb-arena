@@ -101,6 +101,18 @@ async def main():
         action="store_true",
         help="Print verbose output",
     )
+    parser.add_argument(
+        "--template",
+        type=str,
+        default=None,
+        help="Specific template to use (e.g., taostats_subnet_info)",
+    )
+    parser.add_argument(
+        "--metric",
+        type=str,
+        default=None,
+        help="Specific metric/type to query (e.g., price, name)",
+    )
 
     args = parser.parse_args()
 
@@ -114,7 +126,12 @@ async def main():
         sys.exit(1)
 
     if args.verbose:
-        print(f"Config: model={args.model}, seed={args.seed or 'random'}, tasks={args.num_tasks}")
+        config_parts = [f"model={args.model}", f"seed={args.seed or 'random'}", f"tasks={args.num_tasks}"]
+        if args.template:
+            config_parts.append(f"template={args.template}")
+        if args.metric:
+            config_parts.append(f"metric={args.metric}")
+        print(f"Config: {', '.join(config_parts)}")
 
     # Initialize actor
     actor = Actor(api_key=api_key)
@@ -133,6 +150,8 @@ async def main():
             timeout=args.timeout,
             temperature=args.temperature,
             validation_model=args.validation_model,
+            template_name=args.template,
+            metric=args.metric,
         )
 
         # Print results

@@ -21,6 +21,12 @@ class PriceTemplate(QuestionTemplate):
         "What is the current price of TAO in USD? Check taostats.io.",
         "Go to taostats.io and find the current TAO price.",
         "What is TAO trading at right now? Visit taostats.io to find out.",
+        "Find the current Bittensor (TAO) price on taostats.io.",
+        "How much is 1 TAO worth in USD? Check taostats.io.",
+        "What's the live TAO/USD price shown on taostats.io?",
+        "Look up the current market price of TAO on taostats.io.",
+        "Navigate to taostats.io and report the TAO price in dollars.",
+        "What is the current USD value of one Bittensor token?",
     ]
 
     COINGECKO_API = "https://api.coingecko.com/api/v3/simple/price"
@@ -43,8 +49,7 @@ class PriceTemplate(QuestionTemplate):
     def get_validation_rules(self, validation_info: Dict[str, Any]) -> str:
         return """Task-Specific Rules (TAO Price):
 - Score 1.0: Agent provides price within 5% of actual
-- Score 0.5: Agent provides price within 15% of actual
-- Score 0.0: No price, wrong currency, or more than 15% off"""
+- Score 0.0: No price, wrong currency, or more than 5% off"""
 
     async def get_ground_truth(self, validation_info: Dict[str, Any]) -> Optional[float]:
         """Fetch TAO price from CoinGecko API"""
@@ -111,12 +116,8 @@ class PriceTemplate(QuestionTemplate):
         # Calculate percentage difference
         pct_diff = abs(agent_price - ground_truth) / ground_truth * 100
 
-        if pct_diff <= 5:
-            score = 1.0
-        elif pct_diff <= 15:
-            score = 0.5
-        else:
-            score = 0.0
+        # Binary scoring: within 5% tolerance is correct, otherwise wrong
+        score = 1.0 if pct_diff <= 5 else 0.0
 
         return ValidationResult(
             score=score,

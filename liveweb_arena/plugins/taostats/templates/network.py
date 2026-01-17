@@ -28,10 +28,18 @@ class NetworkTemplate(QuestionTemplate):
             "How many subnets currently exist on Bittensor? Check taostats.io/subnets.",
             "What is the total number of subnets on the Bittensor network? Visit taostats.io/subnets.",
             "Go to taostats.io/subnets and count how many subnets are registered.",
+            "Find the current number of active subnets on taostats.io.",
+            "How many subnets are listed on taostats.io/subnets?",
+            "What's the total subnet count shown on taostats.io?",
+            "Count the number of registered subnets on the Bittensor network.",
         ],
         NetworkMetric.CURRENT_BLOCK: [
             "What is the current block number on Bittensor? Check taostats.io.",
             "Go to taostats.io and find the latest block number.",
+            "What's the current block height on the Bittensor network?",
+            "Find the latest finalized block number on taostats.io.",
+            "What block is Bittensor currently at? Check taostats.io.",
+            "Look up the current chain height on taostats.io.",
         ],
     }
 
@@ -62,15 +70,13 @@ class NetworkTemplate(QuestionTemplate):
 
         if metric == "subnet_count":
             return """Task-Specific Rules (Subnet Count):
-- Score 1.0: Agent provides correct subnet count (within ±2 of actual)
-- Score 0.5: Agent provides a count close to actual (within ±10)
-- Score 0.0: No number or clearly wrong count"""
+- Score 1.0: Agent provides correct subnet count (within ±3 of actual)
+- Score 0.0: No number or wrong count"""
 
         if metric == "current_block":
             return """Task-Specific Rules (Current Block):
-- Score 1.0: Agent provides block number close to current (within 100 blocks)
-- Score 0.5: Agent provides a reasonable block number (within 1000 blocks)
-- Score 0.0: No number or clearly wrong"""
+- Score 1.0: Agent provides block number close to current (within 200 blocks)
+- Score 0.0: No number or wrong block"""
 
         return ""
 
@@ -145,23 +151,12 @@ class NetworkTemplate(QuestionTemplate):
                 details="No valid number found",
             )
 
-        # Calculate score based on tolerance
+        # Binary scoring based on tolerance
+        diff = abs(agent_number - ground_truth)
         if metric == "subnet_count":
-            diff = abs(agent_number - ground_truth)
-            if diff <= 2:
-                score = 1.0
-            elif diff <= 10:
-                score = 0.5
-            else:
-                score = 0.0
+            score = 1.0 if diff <= 3 else 0.0
         elif metric == "current_block":
-            diff = abs(agent_number - ground_truth)
-            if diff <= 100:
-                score = 1.0
-            elif diff <= 1000:
-                score = 0.5
-            else:
-                score = 0.0
+            score = 1.0 if diff <= 200 else 0.0
         else:
             score = 0.0
 

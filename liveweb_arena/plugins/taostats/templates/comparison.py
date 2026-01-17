@@ -2,32 +2,30 @@
 
 import random
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from liveweb_arena.core.validators.base import (
     QuestionTemplate, GeneratedQuestion, ValidationResult, register_template,
 )
+from .variables import _fetch_active_subnet_ids, _fetch_subnet_name
 
 
 class ComparisonMetric(Enum):
     """Metrics for subnet comparison"""
     PRICE = "price"
     TAO_STAKED = "tao_staked"
+    ALPHA_IN = "alpha_in"
+    ALPHA_OUT = "alpha_out"
 
 
-# Popular subnets with known good data
-COMPARABLE_SUBNETS = [
-    (1, "Apex"),
-    (2, "Omron"),
-    (5, "Kaizen"),
-    (8, "Taoshi"),
-    (9, "Pretrain"),
-    (13, "Dataverse"),
-    (18, "Cortex"),
-    (19, "Inference"),
-    (21, "Omega"),
-    (27, "Compute"),
-]
+def _get_subnet_pairs(rng: random.Random, count: int = 2) -> List[Tuple[int, str]]:
+    """Dynamically fetch subnet IDs and names for comparison."""
+    subnet_ids = _fetch_active_subnet_ids()
+    if len(subnet_ids) < count:
+        return []
+
+    selected_ids = rng.sample(subnet_ids, count)
+    return [(sid, _fetch_subnet_name(sid) or f"Subnet {sid}") for sid in selected_ids]
 
 
 @register_template("taostats_comparison")
@@ -42,10 +40,24 @@ class ComparisonTemplate(QuestionTemplate):
         ComparisonMetric.PRICE: [
             "Between {subnet1} (SN{id1}) and {subnet2} (SN{id2}), which has a higher alpha price? Check taostats.io/subnets.",
             "Go to taostats.io/subnets and compare {subnet1} and {subnet2}. Which subnet has a higher price?",
+            "Compare the alpha prices of {subnet1} and {subnet2} on taostats.io. Which is more expensive?",
+            "Which subnet has the higher alpha token price: {subnet1} or {subnet2}?",
         ],
         ComparisonMetric.TAO_STAKED: [
             "Between {subnet1} (SN{id1}) and {subnet2} (SN{id2}), which has more TAO staked? Check taostats.io/subnets.",
             "Go to taostats.io/subnets and compare {subnet1} and {subnet2}. Which has higher TAO in?",
+            "Compare {subnet1} and {subnet2}: which has more TAO deposited?",
+            "Which subnet has attracted more TAO: {subnet1} or {subnet2}? Check taostats.io.",
+        ],
+        ComparisonMetric.ALPHA_IN: [
+            "Between {subnet1} and {subnet2}, which has higher alpha-in? Check taostats.io/subnets.",
+            "Compare {subnet1} (SN{id1}) and {subnet2} (SN{id2}): which has more alpha tokens staked in?",
+            "Which subnet has higher alpha-in value: {subnet1} or {subnet2}?",
+        ],
+        ComparisonMetric.ALPHA_OUT: [
+            "Between {subnet1} and {subnet2}, which has higher alpha-out? Check taostats.io/subnets.",
+            "Compare {subnet1} (SN{id1}) and {subnet2} (SN{id2}): which distributes more alpha tokens?",
+            "Which subnet has higher alpha-out value: {subnet1} or {subnet2}?",
         ],
     }
 
@@ -55,8 +67,11 @@ class ComparisonTemplate(QuestionTemplate):
     def generate(self, seed: int) -> GeneratedQuestion:
         rng = random.Random(seed)
 
-        # Select two different subnets
-        selected = rng.sample(COMPARABLE_SUBNETS, 2)
+        # Dynamically select two different subnets
+        selected = _get_subnet_pairs(rng, 2)
+        if len(selected) < 2:
+            # Fallback if network fetch fails
+            selected = [(1, "Subnet 1"), (2, "Subnet 2")]
         id1, name1 = selected[0]
         id2, name2 = selected[1]
 
@@ -90,17 +105,17 @@ class ComparisonTemplate(QuestionTemplate):
         name1 = validation_info.get("subnet1_name", "")
         name2 = validation_info.get("subnet2_name", "")
 
-        if metric == "price":
-            return f"""Task-Specific Rules (Price Comparison: {name1} vs {name2}):
-- Score 1.0: Agent correctly identifies which subnet has higher price
-- Score 0.0: Wrong answer or no clear answer"""
+        metric_names = {
+            "price": "Price",
+            "tao_staked": "TAO Staked",
+            "alpha_in": "Alpha-In",
+            "alpha_out": "Alpha-Out",
+        }
+        metric_display = metric_names.get(metric, metric)
 
-        if metric == "tao_staked":
-            return f"""Task-Specific Rules (TAO Staked Comparison: {name1} vs {name2}):
-- Score 1.0: Agent correctly identifies which subnet has more TAO staked
+        return f"""Task-Specific Rules ({metric_display} Comparison: {name1} vs {name2}):
+- Score 1.0: Agent correctly identifies which subnet has higher {metric_display.lower()}
 - Score 0.0: Wrong answer or no clear answer"""
-
-        return ""
 
     async def get_ground_truth(self, validation_info: Dict[str, Any]) -> Optional[str]:
         """
@@ -132,6 +147,12 @@ class ComparisonTemplate(QuestionTemplate):
             elif metric == "tao_staked":
                 val1 = float(info1.tao_in.tao) if info1.tao_in else 0
                 val2 = float(info2.tao_in.tao) if info2.tao_in else 0
+            elif metric == "alpha_in":
+                val1 = float(info1.alpha_in.tao) if info1.alpha_in else 0
+                val2 = float(info2.alpha_in.tao) if info2.alpha_in else 0
+            elif metric == "alpha_out":
+                val1 = float(info1.alpha_out.tao) if info1.alpha_out else 0
+                val2 = float(info2.alpha_out.tao) if info2.alpha_out else 0
             else:
                 return None
 

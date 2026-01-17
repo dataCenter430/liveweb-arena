@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from liveweb_arena.core.validators.base import (
     QuestionTemplate, GeneratedQuestion, ValidationResult, register_template,
 )
+from .variables import _fetch_active_subnet_ids, _fetch_subnet_name
 
 
 class AnalysisType(Enum):
@@ -14,21 +15,19 @@ class AnalysisType(Enum):
     HIGHEST_PRICE_TO_STAKE = "highest_price_to_stake"
     LOWEST_PRICE_TO_STAKE = "lowest_price_to_stake"
     HIGHEST_STAKE_EFFICIENCY = "highest_stake_efficiency"
+    HIGHEST_TAO_IN = "highest_tao_in"
+    HIGHEST_PRICE = "highest_price"
+    LOWEST_PRICE = "lowest_price"
 
 
-# Subnets to analyze (need enough variation for interesting analysis)
-ANALYSIS_SUBNETS = [
-    (1, "Apex"),
-    (2, "Omron"),
-    (5, "Kaizen"),
-    (8, "Taoshi"),
-    (9, "Pretrain"),
-    (13, "Dataverse"),
-    (18, "Cortex"),
-    (19, "Inference"),
-    (21, "Omega"),
-    (27, "Compute"),
-]
+def _get_subnet_list(rng: random.Random, count: int) -> List[Tuple[int, str]]:
+    """Dynamically fetch subnet IDs and names for analysis."""
+    subnet_ids = _fetch_active_subnet_ids()
+    if len(subnet_ids) < count:
+        count = len(subnet_ids)
+
+    selected_ids = rng.sample(subnet_ids, count)
+    return [(sid, _fetch_subnet_name(sid) or f"Subnet {sid}") for sid in selected_ids]
 
 
 @register_template("taostats_analysis")
@@ -48,14 +47,32 @@ class AnalysisTemplate(QuestionTemplate):
         AnalysisType.HIGHEST_PRICE_TO_STAKE: [
             "Among these subnets: {subnets}, which one has the highest price-to-TAO-staked ratio? Check taostats.io/subnets for price and TAO in data.",
             "Compare {subnets} on taostats.io/subnets. Which subnet has the highest alpha price relative to its TAO staked?",
+            "Looking at {subnets}, find which has the best price-to-stake ratio.",
         ],
         AnalysisType.LOWEST_PRICE_TO_STAKE: [
             "Among these subnets: {subnets}, which one has the lowest price-to-TAO-staked ratio? Check taostats.io/subnets.",
             "Compare {subnets} on taostats.io/subnets. Which subnet has the lowest alpha price relative to its TAO staked (best value)?",
+            "Looking at {subnets}, which offers the best value (lowest price per TAO staked)?",
         ],
         AnalysisType.HIGHEST_STAKE_EFFICIENCY: [
             "Among {subnets}, which subnet has the highest alpha-out to alpha-in ratio (stake efficiency)? Check taostats.io/subnets.",
             "Compare {subnets} on taostats.io. Which subnet converts alpha-in to alpha-out most efficiently?",
+            "Looking at {subnets}, which has the best stake efficiency?",
+        ],
+        AnalysisType.HIGHEST_TAO_IN: [
+            "Among {subnets}, which subnet has the most TAO staked? Check taostats.io/subnets.",
+            "Compare {subnets} on taostats.io. Which has attracted the highest TAO deposits?",
+            "Looking at {subnets}, find the subnet with highest TAO in value.",
+        ],
+        AnalysisType.HIGHEST_PRICE: [
+            "Among {subnets}, which subnet has the highest alpha price? Check taostats.io/subnets.",
+            "Compare {subnets} on taostats.io. Which has the most expensive alpha token?",
+            "Looking at {subnets}, which has the highest priced alpha token?",
+        ],
+        AnalysisType.LOWEST_PRICE: [
+            "Among {subnets}, which subnet has the lowest alpha price? Check taostats.io/subnets.",
+            "Compare {subnets} on taostats.io. Which has the cheapest alpha token?",
+            "Looking at {subnets}, which has the lowest priced alpha token?",
         ],
     }
 
@@ -65,9 +82,12 @@ class AnalysisTemplate(QuestionTemplate):
     def generate(self, seed: int) -> GeneratedQuestion:
         rng = random.Random(seed)
 
-        # Select 3-5 subnets for comparison
+        # Dynamically select 3-5 subnets for comparison
         num_subnets = rng.randint(3, 5)
-        selected = rng.sample(ANALYSIS_SUBNETS, num_subnets)
+        selected = _get_subnet_list(rng, num_subnets)
+        if len(selected) < 2:
+            # Fallback if network fetch fails
+            selected = [(1, "Subnet 1"), (2, "Subnet 2"), (3, "Subnet 3")]
 
         analysis_type = rng.choice(list(AnalysisType))
         patterns = self.PATTERNS[analysis_type]
@@ -96,25 +116,19 @@ class AnalysisTemplate(QuestionTemplate):
         subnet_names = validation_info.get("subnet_names", [])
         subnets_str = ", ".join(subnet_names)
 
-        if analysis_type == "highest_price_to_stake":
-            return f"""Task-Specific Rules (Highest Price/Stake Ratio among {subnets_str}):
-- Score 1.0: Agent correctly identifies the subnet with highest price-to-stake ratio
-- Score 0.5: Agent identifies a subnet in top 2 by this metric
-- Score 0.0: Wrong subnet or no clear answer"""
+        type_rules = {
+            "highest_price_to_stake": "highest price-to-stake ratio",
+            "lowest_price_to_stake": "lowest price-to-stake ratio",
+            "highest_stake_efficiency": "highest alpha-out/alpha-in ratio",
+            "highest_tao_in": "highest TAO staked",
+            "highest_price": "highest alpha price",
+            "lowest_price": "lowest alpha price",
+        }
 
-        if analysis_type == "lowest_price_to_stake":
-            return f"""Task-Specific Rules (Lowest Price/Stake Ratio among {subnets_str}):
-- Score 1.0: Agent correctly identifies the subnet with lowest price-to-stake ratio
-- Score 0.5: Agent identifies a subnet in bottom 2 by this metric
+        rule = type_rules.get(analysis_type, analysis_type)
+        return f"""Task-Specific Rules ({rule.title()} among {subnets_str}):
+- Score 1.0: Agent correctly identifies the subnet with {rule}
 - Score 0.0: Wrong subnet or no clear answer"""
-
-        if analysis_type == "highest_stake_efficiency":
-            return f"""Task-Specific Rules (Highest Stake Efficiency among {subnets_str}):
-- Score 1.0: Agent correctly identifies the subnet with highest alpha-out/alpha-in ratio
-- Score 0.5: Agent identifies a subnet in top 2 by this metric
-- Score 0.0: Wrong subnet or no clear answer"""
-
-        return ""
 
     async def get_ground_truth(self, validation_info: Dict[str, Any]) -> Optional[Tuple[str, List[str]]]:
         """
@@ -168,14 +182,20 @@ class AnalysisTemplate(QuestionTemplate):
                 return None
 
             # Sort by the relevant metric
-            if analysis_type == "highest_price_to_stake":
-                subnet_data.sort(key=lambda x: x["price_to_stake"], reverse=True)
-            elif analysis_type == "lowest_price_to_stake":
-                subnet_data.sort(key=lambda x: x["price_to_stake"], reverse=False)
-            elif analysis_type == "highest_stake_efficiency":
-                subnet_data.sort(key=lambda x: x["stake_efficiency"], reverse=True)
-            else:
+            sort_config = {
+                "highest_price_to_stake": ("price_to_stake", True),
+                "lowest_price_to_stake": ("price_to_stake", False),
+                "highest_stake_efficiency": ("stake_efficiency", True),
+                "highest_tao_in": ("tao_in", True),
+                "highest_price": ("price", True),
+                "lowest_price": ("price", False),
+            }
+
+            if analysis_type not in sort_config:
                 return None
+
+            sort_key, reverse = sort_config[analysis_type]
+            subnet_data.sort(key=lambda x: x[sort_key], reverse=reverse)
 
             top_name = subnet_data[0]["name"]
             top_2_names = [s["name"] for s in subnet_data[:2]]
@@ -200,29 +220,18 @@ class AnalysisTemplate(QuestionTemplate):
                 details="Ground truth unavailable",
             )
 
-        top_name, top_2_names = ground_truth
+        top_name, _ = ground_truth
         answer_lower = answer.lower()
 
-        # Check if correct subnet is mentioned
+        # Binary scoring: correct subnet or wrong
         if top_name.lower() in answer_lower:
             return ValidationResult(
                 score=1.0,
                 is_correct=True,
                 expected=top_name,
                 actual=answer,
-                details="Correct - top subnet identified",
+                details="Correct subnet identified",
             )
-
-        # Check if second-best is mentioned (partial credit)
-        for name in top_2_names[1:]:
-            if name.lower() in answer_lower:
-                return ValidationResult(
-                    score=0.5,
-                    is_correct=False,
-                    expected=top_name,
-                    actual=answer,
-                    details=f"Partial - {name} is #2, not #1",
-                )
 
         return ValidationResult(
             score=0.0,

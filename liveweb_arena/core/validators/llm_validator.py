@@ -38,21 +38,7 @@ DEFAULT_TASK_RULES = """Task-Specific Rules:
 - Score 1.0: Answers match exactly (ignoring format)
 - Score 0.0: Answers do not match"""
 
-# Prompt for validating answers when no ground truth is available
-NO_GROUND_TRUTH_PROMPT = """You are an answer validator. The ground truth is not available, so evaluate based on the task-specific rules and answer quality.
-
-Question: {question}
-Agent's Answer: {actual}
-
-{task_specific_rules}
-
-If no task-specific rules provided, use these defaults:
-- Score 1.0: Answer is specific with concrete data (names, numbers, percentages)
-- Score 0.5: Answer is vague or missing key details
-- Score 0.0: No answer, error message, or clearly invalid
-
-Output ONLY a JSON object: {{"score": <0.0, 0.5, or 1.0>, "reasoning": "<brief max 30 words>"}}
-"""
+# Note: NO_GROUND_TRUTH_PROMPT removed - ground truth is always required
 
 
 class LLMValidator:
@@ -105,25 +91,26 @@ class LLMValidator:
                 reasoning="No answer provided by the agent.",
             )
 
+        # Ground truth is required - cannot validate without it
+        if expected is None:
+            return LLMValidationResult(
+                score=0.0,
+                is_correct=False,
+                expected=None,
+                actual=actual,
+                reasoning="Ground truth unavailable - cannot validate answer.",
+            )
+
         # Use task-specific rules or default
         rules = task_specific_rules if task_specific_rules else DEFAULT_TASK_RULES
 
-        # Build validation prompt based on whether ground truth is available
-        if expected is None:
-            # No ground truth - use plausibility validation
-            prompt = NO_GROUND_TRUTH_PROMPT.format(
-                question=question,
-                actual=str(actual),
-                task_specific_rules=rules,
-            )
-        else:
-            # Normal validation with ground truth
-            prompt = COMMON_VALIDATION_PROMPT.format(
-                question=question,
-                expected=str(expected),
-                actual=str(actual),
-                task_specific_rules=rules,
-            )
+        # Normal validation with ground truth
+        prompt = COMMON_VALIDATION_PROMPT.format(
+            question=question,
+            expected=str(expected),
+            actual=str(actual),
+            task_specific_rules=rules,
+        )
 
         try:
             # Call LLM for validation

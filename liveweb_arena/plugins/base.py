@@ -62,12 +62,19 @@ class BasePlugin(ABC):
         pass
 
     @abstractmethod
-    async def generate_task(self, seed: int) -> SubTask:
+    async def generate_task(
+        self,
+        seed: int,
+        template_name: str = None,
+        metric: str = None,
+    ) -> SubTask:
         """
         Generate a sub-task deterministically based on seed.
 
         Args:
             seed: Random seed for deterministic generation
+            template_name: Optional specific template to use
+            metric: Optional specific metric/type to query
 
         Returns:
             SubTask with intent and validation_info

@@ -9,14 +9,14 @@ from liveweb_arena.core.validators.base import Variable, VariableType
 
 
 class SubnetMetric(Enum):
-    """Metrics that can be queried for a subnet - only those reliably visible on taostats.io"""
+    """Metrics that can be queried for a subnet - only those with verifiable ground truth"""
     NAME = "name"
     OWNER = "owner"
-    EMISSION = "emission"
-    REGISTRATION_COST = "registration_cost"
     PRICE = "price"  # Alpha token price
-    # Note: TEMPO removed - not displayed on taostats.io
     GITHUB_REPO = "github_repo"  # GitHub repository URL
+    # Note: REGISTRATION_COST removed - get_subnet_burn_cost unreliable (StateDiscardedError)
+    # Note: EMISSION removed - SDK returns TAO value, website shows percentage (incompatible)
+    # Note: TEMPO removed - not displayed on taostats.io
 
 
 @dataclass
@@ -128,19 +128,10 @@ class MetricVariable(Variable):
         SubnetMetric.OWNER: MetricSpec(
             SubnetMetric.OWNER, "owner", is_numeric=False
         ),
-        SubnetMetric.EMISSION: MetricSpec(
-            SubnetMetric.EMISSION, "emission", unit="τ/day", is_numeric=True,
-            tolerance_pct=15.0  # Emissions fluctuate
-        ),
-        SubnetMetric.REGISTRATION_COST: MetricSpec(
-            SubnetMetric.REGISTRATION_COST, "registration cost", unit="τ",
-            is_numeric=True, tolerance_pct=20.0  # Dynamic pricing
-        ),
         SubnetMetric.PRICE: MetricSpec(
             SubnetMetric.PRICE, "alpha price", unit="τ", is_numeric=True,
             tolerance_pct=10.0
         ),
-        # Note: TEMPO removed - not displayed on taostats.io
         SubnetMetric.GITHUB_REPO: MetricSpec(
             SubnetMetric.GITHUB_REPO, "GitHub repository", is_numeric=False
         ),

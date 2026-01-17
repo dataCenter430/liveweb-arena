@@ -17,7 +17,7 @@ class SubnetInfoTemplate(QuestionTemplate):
 
     Uses Bittensor Python SDK for ground truth validation.
     Generates diverse questions about Bittensor subnets:
-    - 128 subnets × 7 metrics = 896+ unique question combinations
+    - 128 subnets × 4 metrics = 512+ unique question combinations
     """
 
     PATTERNS: Dict[SubnetMetric, List[str]] = {
@@ -25,29 +25,31 @@ class SubnetInfoTemplate(QuestionTemplate):
             "What is the name of {subnet}?",
             "What is {subnet} called on Bittensor?",
             "What's the official name of Bittensor {subnet}?",
+            "Find the name of {subnet} on taostats.io.",
+            "Look up {subnet} and tell me its name.",
+            "What subnet name is registered for {subnet}?",
         ],
         SubnetMetric.OWNER: [
             "Who owns {subnet} on Bittensor?",
             "Who is the owner of {subnet}?",
             "What is the owner address of {subnet}?",
-        ],
-        SubnetMetric.EMISSION: [
-            "What is the emission of {subnet}?",
-            "What's the current emission rate for {subnet}?",
-        ],
-        SubnetMetric.REGISTRATION_COST: [
-            "What is the registration cost for {subnet}?",
-            "How much TAO does it cost to register on {subnet}?",
+            "Find the owner coldkey address for {subnet}.",
+            "What wallet address owns {subnet}?",
+            "Look up the owner of {subnet} on taostats.io.",
         ],
         SubnetMetric.PRICE: [
             "What is the alpha price of {subnet}?",
             "What's the current alpha token price for {subnet}?",
+            "How much is one alpha token worth on {subnet}?",
+            "Find the alpha price for {subnet} on taostats.io.",
+            "What's the current price of {subnet}'s alpha token in TAO?",
         ],
-        # Note: TEMPO removed - not displayed on taostats.io
         SubnetMetric.GITHUB_REPO: [
             "What is the GitHub repository for {subnet}?",
             "Where can I find the source code for {subnet}?",
             "What's the official GitHub URL of {subnet}?",
+            "Find the GitHub link for {subnet} on taostats.io.",
+            "What repository hosts the code for {subnet}?",
         ],
     }
 
@@ -59,16 +61,9 @@ class SubnetInfoTemplate(QuestionTemplate):
         # Register validators
         self.register_validator("name", ExactMatchValidator(case_sensitive=False))
         self.register_validator("owner", ExactMatchValidator(case_sensitive=False))
-        self.register_validator("emission", NumericToleranceValidator(
-            full_tolerance=0.001, partial_tolerance=0.01, unit="τ"
-        ))
-        self.register_validator("registration_cost", NumericToleranceValidator(
-            full_tolerance=0.001, partial_tolerance=0.01, unit="τ"
-        ))
         self.register_validator("price", NumericToleranceValidator(
             full_tolerance=0.0001, partial_tolerance=0.001, unit="τ"
         ))
-        # Note: tempo validator removed - not displayed on taostats.io
         self.register_validator("github_repo", ExactMatchValidator(case_sensitive=False))
 
     def generate(self, seed: int) -> GeneratedQuestion:
@@ -115,22 +110,6 @@ IMPORTANT: The webpage shows truncated addresses by default (e.g., "5DWgkC...uS9
 Simply copying this truncated format is NOT sufficient for full score.
 Agent should click the address to get the full address from the URL or account page."""
 
-        if metric == "emission":
-            return """Task-Specific Rules (Emission):
-- Score 1.0: Agent provides a specific emission percentage (e.g., "0.33%", "2.57%")
-- Score 0.5: Agent provides emission in different format but appears to be real data
-- Score 0.0: No data, error, or clearly implausible value
-
-Note: Emission values shown on taostats are percentages of total network emission."""
-
-        if metric == "registration_cost":
-            return """Task-Specific Rules (Registration Cost):
-- Score 1.0: Agent provides a specific cost value (e.g., "0.06 TAO", "0.00 TAO")
-- Score 0.5: Agent provides cost in different format but appears to be real data
-- Score 0.0: No data, error, or clearly implausible value"""
-
-        # Note: tempo removed - not displayed on taostats.io
-
         if metric == "github_repo":
             return """Task-Specific Rules (GitHub Repository):
 - Score 1.0: URLs match (case-insensitive)
@@ -162,15 +141,8 @@ Note: Emission values shown on taostats are percentages of total network emissio
                 return info.subnet_name or info.subnet_identity.subnet_name
             elif metric == "owner":
                 return info.owner_coldkey
-            elif metric == "emission":
-                # SDK returns raw TAO value, but website shows percentage of total emission
-                # These are different metrics, so use LLM validation
-                return None
-            elif metric == "registration_cost":
-                burn = subtensor.get_subnet_burn_cost(subnet_id)
-                return f"τ{burn.tao:.6f}" if burn else None
             elif metric == "price":
-                return f"τ{info.price:.6f}" if info.price else None
+                return f"τ{info.price.tao:.6f}" if info.price else None
             # Note: tempo removed - not displayed on taostats.io
             elif metric == "github_repo":
                 if info.subnet_identity and info.subnet_identity.github_repo:

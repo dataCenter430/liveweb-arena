@@ -73,13 +73,21 @@ The page displays an ASCII art weather report showing:
 - Rain probability shown as percentage like "0.1 mm | 81%"
 """
 
-    async def generate_task(self, seed: int) -> SubTask:
+    async def generate_task(
+        self,
+        seed: int,
+        template_name: str = None,
+        metric: str = None,
+    ) -> SubTask:
         """Generate a weather query task using templates"""
         rng = random.Random(seed)
 
         # Select a template
-        template_name = rng.choice(list(self._template_instances.keys()))
-        template = self._template_instances[template_name]
+        if template_name and template_name in self._template_instances:
+            selected_template_name = template_name
+        else:
+            selected_template_name = rng.choice(list(self._template_instances.keys()))
+        template = self._template_instances[selected_template_name]
 
         # Generate question using template
         question: GeneratedQuestion = template.generate(seed)
@@ -89,7 +97,7 @@ The page displays an ASCII art weather report showing:
             plugin_name=self.name,
             intent=question.question_text,
             validation_info={
-                "template_name": template_name,
+                "template_name": selected_template_name,
                 **question.validation_info,
             },
             answer_tag="",  # Will be set by TaskManager
