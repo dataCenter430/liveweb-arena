@@ -64,6 +64,7 @@ class GeneratedQuestion:
     variables: Dict[str, Any]  # Resolved variable values
     validation_info: Dict[str, Any]  # Info needed for validation
     template_name: str  # Name of the template that generated this
+    expected_steps: int = 10  # Expected number of steps to complete this question
 
 
 class Variable(ABC):
@@ -241,6 +242,22 @@ class QuestionTemplate(ABC):
         """
         # Default: no special rules
         return ""
+
+    def get_expected_steps(self, validation_info: Dict[str, Any]) -> int:
+        """
+        Get the expected number of steps to complete this question.
+
+        Override this method for complex questions that require more steps.
+        This helps set appropriate limits for evaluation.
+
+        Args:
+            validation_info: Information about the question
+
+        Returns:
+            Expected number of browser interaction steps
+        """
+        # Default: 10 steps for simple questions
+        return 10
 
     def _sample_variables(self, rng: random.Random) -> Dict[str, Any]:
         """Sample all registered variables"""

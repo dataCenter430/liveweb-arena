@@ -195,6 +195,10 @@ class StooqRankingTemplate(QuestionTemplate):
             "position": position.value,
         }
 
+        # Calculate expected steps: 5 instruments × 3 steps each + buffer
+        num_instruments = len(instruments)
+        expected_steps = num_instruments * 6 + 10  # ~40 steps for 5 instruments
+
         return GeneratedQuestion(
             question_text=question_text,
             start_url="https://stooq.com/",
@@ -206,7 +210,15 @@ class StooqRankingTemplate(QuestionTemplate):
             },
             validation_info=validation_info,
             template_name=self.name,
+            expected_steps=expected_steps,
         )
+
+    def get_expected_steps(self, validation_info: Dict[str, Any]) -> int:
+        """Ranking requires visiting multiple pages - need more steps"""
+        instruments = validation_info.get("instruments", [])
+        num_instruments = len(instruments)
+        # 6 steps per instrument (navigate + read + potential retry) + 10 buffer
+        return num_instruments * 6 + 10
 
     def get_validation_rules(self, validation_info: Dict[str, Any]) -> str:
         metric = validation_info.get("metric", "change_percent")

@@ -167,6 +167,13 @@ class Actor:
             q = subtask.intent
             log("Actor", f"  [{i}] {q[:100]}{'...' if len(q) > 100 else ''}")
 
+        # Calculate effective max_steps from subtasks
+        # Use the sum of expected_steps from all subtasks, but at least the provided max_steps
+        total_expected_steps = sum(st.expected_steps for st in task.subtasks)
+        effective_max_steps = max(max_steps, total_expected_steps)
+        if effective_max_steps != max_steps:
+            log("Actor", f"Adjusted max_steps: {max_steps} -> {effective_max_steps} (based on task complexity)")
+
         # Create isolated browser session
         session = await self.browser.new_session()
 
@@ -176,7 +183,7 @@ class Actor:
                 session=session,
                 llm_client=llm_client,
                 policy=AgentPolicy(),
-                max_steps=max_steps,
+                max_steps=effective_max_steps,
             )
 
             # Fetch ground truths BEFORE agent starts (same time point as AI query)
@@ -356,27 +363,20 @@ class Actor:
             List of conversation turns with role, content, and metadata
         """
         from liveweb_arena.core.models import CompositeTask, TrajectoryStep
+        from liveweb_arena.core.agent_policy import AgentPolicy
 
         conversation = []
 
-        # System message: only rules and output format
-        system_content = """You are a browser automation agent. Navigate web pages to complete tasks.
-
-## Output Requirements
-
-When you have completed all tasks, use the "stop" action with your answers in JSON format:
-
-```json
-{"answers": {"answer1": "...", "answer2": "..."}}
-```
-
-Each answer should be a concise, direct response to the corresponding task."""
+        # Build full system prompt (same as what's sent to LLM)
+        policy = AgentPolicy()
+        system_content = policy.build_system_prompt(task)
 
         conversation.append({
             "role": "system",
             "content": system_content,
             "metadata": {
                 "type": "instructions",
+                "plugins": list(task.plugin_hints.keys()) if task.plugin_hints else [],
             }
         })
 
