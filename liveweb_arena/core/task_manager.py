@@ -72,9 +72,8 @@ class TaskManager:
                 raise ValueError("No plugins available")
             selected_plugins = rng.choices(available, k=num_subtasks)
 
-        # Generate sub-tasks and collect plugin hints
+        # Generate sub-tasks
         subtasks: List[SubTask] = []
-        plugin_hints: Dict[str, str] = {}
 
         for i, plugin_name in enumerate(selected_plugins):
             plugin = self._get_plugin(plugin_name)
@@ -89,9 +88,12 @@ class TaskManager:
             subtask.answer_tag = f"answer{i + 1}"
             subtasks.append(subtask)
 
-            # Collect plugin usage hint (only once per plugin)
-            if plugin_name not in plugin_hints:
-                plugin_hints[plugin_name] = plugin.usage_hint
+        # Always include ALL plugin hints (not just selected ones)
+        # This ensures agent knows about all available data sources
+        plugin_hints: Dict[str, str] = {}
+        for plugin_name in self._plugin_classes.keys():
+            plugin = self._get_plugin(plugin_name)
+            plugin_hints[plugin_name] = plugin.usage_hint
 
         # Build combined intent (without start_url - Agent decides navigation)
         combined_intent = self._build_combined_intent(subtasks)

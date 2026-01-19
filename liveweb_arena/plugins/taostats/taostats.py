@@ -52,29 +52,11 @@ class TaostatsPlugin(BasePlugin):
 
     @property
     def usage_hint(self) -> str:
-        return """## Taostats (taostats.io)
-
-**Website**: https://taostats.io
-
-**Key Pages**:
-- /subnets - List of all SUBNETS (like Apex, Nodexo, ItsAI) with rankings by market cap, price, emission
-- /subnets/{id} - Detailed info for a specific subnet (e.g., /subnets/27 for Nodexo)
-- /validators - List of VALIDATORS (like tao.bot, Taostats, RoundTable21)
-
-**IMPORTANT - Subnets vs Validators**:
-- SUBNETS are networks (Apex, Nodexo, Templar, etc.) - find on /subnets page
-- VALIDATORS are node operators (tao.bot, Taostats, etc.) - find on /validators page
-- If question mentions subnet name like "Nodexo" or "Apex", go to /subnets
-
-**Subnet Page (/subnets/{id}) Content**:
-- Name, owner address, registration cost
-- Emission rate, tempo, alpha price
-- GitHub repository (if available)
-
-**Tips**:
-- Subnet rankings shown on /subnets page (sortable by market cap, price, emission)
-- TAO amounts shown with τ symbol
-- Subnet names are displayed with "SN" prefix (e.g., SN27 for Nodexo)
+        return """## taostats.io (Bittensor)
+- /subnets - All subnets list (SN1, SN2...), sortable by market cap/price/emission
+- /subnets/{id} - Subnet details: owner address, emission, price (e.g., /subnets/27)
+- /validators - Validator list (tao.bot, Taostats, etc.)
+- Note: "SN28" means subnet ID 28, find at /subnets/28
 """
 
     async def generate_task(

@@ -20,16 +20,24 @@ class WeatherPlugin(BasePlugin):
     - time_of_day: Time-period specific queries (morning/afternoon/evening/night)
     """
 
+    # Weather-specific template names (no prefix, unlike stooq_* and taostats_*)
+    WEATHER_TEMPLATES = {"location_name", "multi_day", "time_of_day"}
+
     def __init__(self, templates: List[str] = None, use_chinese: bool = False):
         self.use_chinese = use_chinese
         self._template_instances: Dict[str, QuestionTemplate] = {}
 
-        # Get templates from global registry
+        # Get weather templates from global registry (filter to weather-only)
         registered = get_registered_templates()
-        template_names = templates or list(registered.keys())
+        weather_templates = {
+            k: v for k, v in registered.items()
+            if k in self.WEATHER_TEMPLATES
+        }
+
+        template_names = templates or list(weather_templates.keys())
         for name in template_names:
-            if name in registered:
-                cls = registered[name]
+            if name in weather_templates:
+                cls = weather_templates[name]
                 # Some templates support use_chinese, others don't
                 try:
                     self._template_instances[name] = cls(use_chinese=use_chinese)
@@ -50,27 +58,10 @@ class WeatherPlugin(BasePlugin):
 
     @property
     def usage_hint(self) -> str:
-        return """## Weather Tool (wttr.in)
-
-**Website**: https://wttr.in
-
-**URL Patterns**:
-- By city name: https://wttr.in/London or https://wttr.in/New+York
-- By airport code: https://wttr.in/JFK
-- By coordinates: https://wttr.in/48.8567,2.3508
-- By landmark: https://wttr.in/~Eiffel+Tower
-
-**Page Content**:
-The page displays an ASCII art weather report showing:
-- Current conditions at the top (temperature, wind, visibility)
-- 3-day forecast in a table format with Morning/Noon/Evening/Night columns
-- Temperature format: +25(28) °C means 25°C actual, 28°C feels-like
-- Each day shows high temperatures around Noon/Evening
-
-**Tips**:
-- The temperature shown with parentheses like +28(31) means actual temp is 28°C
-- Look at the Noon and Evening columns for daily high temperatures
-- Rain probability shown as percentage like "0.1 mm | 81%"
+        return """## wttr.in (Weather)
+- URL: https://wttr.in/{city} (e.g., /London, /New+York, /~Eiffel+Tower)
+- Shows current conditions + 3-day forecast (Morning/Noon/Evening/Night)
+- Temperature +25(28)°C means 25°C actual, 28°C feels-like
 """
 
     async def generate_task(

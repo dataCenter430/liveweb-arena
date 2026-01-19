@@ -55,41 +55,10 @@ class StooqPlugin(BasePlugin):
 
     @property
     def usage_hint(self) -> str:
-        return """## Stooq Financial Data (stooq.com)
-
-**Website**: https://stooq.com
-
-**URL Patterns**:
-- Stock quote: https://stooq.com/q/?s=aapl.us (US stocks use .us suffix)
-- Index quote: https://stooq.com/q/?s=^dji (indices use ^ prefix)
-- Currency pair: https://stooq.com/q/?s=eurusd
-- Commodity: https://stooq.com/q/?s=gc.f (futures use .f suffix)
-- Historical data: https://stooq.com/q/d/?s=aapl.us
-
-**Key Pages**:
-- /q/?s={symbol} - Quote page with current price, change, volume
+        return """## stooq.com (Finance)
+- /q/?s={symbol} - Quote: price, change, 52-week high/low
+- Symbols: aapl.us (stocks), ^dji/^spx/^dax (indices), eurusd (forex), gc.f (commodities)
 - /q/d/?s={symbol} - Historical data table
-- /t/?i=510 - Main indices overview
-- /t/?i=515 - NYSE stocks list
-
-**Available Data**:
-- Current price (Last)
-- Price change (absolute and percentage)
-- Open, High, Low prices
-- Trading volume
-- Historical daily data (Open, High, Low, Close, Volume)
-
-**Symbol Examples**:
-- US Stocks: aapl.us, msft.us, googl.us, amzn.us, nvda.us
-- Indices: ^dji (Dow Jones), ^spx (S&P 500), ^ndx (NASDAQ 100)
-- Currencies: eurusd, gbpusd, usdjpy
-- Commodities: gc.f (Gold), cl.f (Oil), si.f (Silver)
-
-**Tips**:
-- Percentage changes are shown with + or - signs
-- The page updates automatically with real-time data
-- Historical data can be viewed in table format or downloaded
-- Market data may be delayed by 15-20 minutes for some instruments
 """
 
     async def generate_task(
