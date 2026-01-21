@@ -338,10 +338,14 @@ class DateVariable(Variable):
 
 class TimeOfDay(Enum):
     """Time periods within a day (maps to wttr.in hourly indices)"""
-    MORNING = "morning"      # 6:00-12:00 (indices 2-4)
-    AFTERNOON = "afternoon"  # 12:00-18:00 (indices 4-6)
-    EVENING = "evening"      # 18:00-21:00 (indices 6-7)
-    NIGHT = "night"          # 21:00-6:00 (indices 7, 0-2)
+    # wttr.in hourly data has 8 entries (3-hour intervals):
+    #   0=00:00, 1=03:00, 2=06:00, 3=09:00, 4=12:00, 5=15:00, 6=18:00, 7=21:00
+    # But HTML page only shows 4 columns: Morning(3), Noon(4), Evening(6), Night(7)
+    # Ground truth must use only indices visible on HTML for AI to match
+    MORNING = "morning"      # 09:00 (index 3) - HTML "Morning" column
+    AFTERNOON = "afternoon"  # 12:00 (index 4) - HTML "Noon" column (closest to afternoon)
+    EVENING = "evening"      # 18:00 (index 6) - HTML "Evening" column
+    NIGHT = "night"          # 21:00 (index 7) - HTML "Night" column
 
 
 @dataclass
@@ -349,17 +353,20 @@ class TimeOfDaySpec:
     """Specification of a time period"""
     time_of_day: TimeOfDay
     display_name: str
-    hourly_indices: List[int]  # wttr.in hourly array indices (0-7)
+    hourly_indices: List[int]  # wttr.in hourly array indices visible on HTML
 
 
 class TimeOfDayVariable(Variable):
     """Variable for time-of-day specifications."""
 
+    # IMPORTANT: Only use indices that are displayed on wttr.in HTML page
+    # HTML shows 4 columns: Morning(3=09:00), Noon(4=12:00), Evening(6=18:00), Night(7=21:00)
+    # Using invisible indices (0,1,2,5) would make ground truth differ from what AI sees
     TIMES = {
-        TimeOfDay.MORNING: TimeOfDaySpec(TimeOfDay.MORNING, "morning", [2, 3, 4]),
-        TimeOfDay.AFTERNOON: TimeOfDaySpec(TimeOfDay.AFTERNOON, "afternoon", [4, 5, 6]),
-        TimeOfDay.EVENING: TimeOfDaySpec(TimeOfDay.EVENING, "evening", [6, 7]),
-        TimeOfDay.NIGHT: TimeOfDaySpec(TimeOfDay.NIGHT, "night", [0, 1, 7]),
+        TimeOfDay.MORNING: TimeOfDaySpec(TimeOfDay.MORNING, "morning", [3]),
+        TimeOfDay.AFTERNOON: TimeOfDaySpec(TimeOfDay.AFTERNOON, "afternoon", [4]),
+        TimeOfDay.EVENING: TimeOfDaySpec(TimeOfDay.EVENING, "evening", [6]),
+        TimeOfDay.NIGHT: TimeOfDaySpec(TimeOfDay.NIGHT, "night", [7]),
     }
 
     def __init__(self, allowed_times: List[TimeOfDay] = None):

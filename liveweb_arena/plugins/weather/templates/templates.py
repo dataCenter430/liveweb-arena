@@ -65,7 +65,7 @@ class LocationNameWeatherTemplate(QuestionTemplate):
             allowed_metrics: Metrics to use (default: temperature, wind, rain)
             regions: Geographic regions to sample cities from
         """
-        super().__init__("location_name_weather")
+        super().__init__("location_name")
         self.use_chinese = use_chinese
 
         # Register variables
@@ -204,8 +204,8 @@ class LocationNameWeatherTemplate(QuestionTemplate):
 
         if "temp" in metric_type.lower():
             return """Task-Specific Rules (Weather - Temperature):
-- Score 1.0: Numeric values match exactly
-- Score 0.0: Values differ"""
+- Score 1.0: Values match within 2°C
+- Score 0.0: Difference exceeds 2°C"""
 
         if "chance" in metric_type.lower() or "percent" in metric_type.lower():
             return """Task-Specific Rules (Weather - Percentage):
@@ -359,13 +359,22 @@ class LocationNameWeatherTemplate(QuestionTemplate):
         validation_info: Dict[str, Any]
     ) -> tuple:
         """
-        Weather data should be fetched when AI visits wttr.in.
+        Weather template: fetch when AI visits the specific location's page.
 
-        Strategy: FIRST - weather data is relatively stable within a session,
-        first observation is sufficient. We only check domain, not specific
-        location, since the AI might use different URL formats.
+        Uses city name (first part of location) for URL matching since AI
+        often visits shorter URLs like "wttr.in/Nairobi" instead of
+        "wttr.in/Nairobi,Kenya".
+
+        Strategy: FIRST - weather data is stable within a single session.
         """
-        trigger = UrlPatternTrigger(domains=["wttr.in"])
+        location = validation_info.get("location", "")
+        # Extract city name (first part before comma) for more flexible matching
+        # e.g., "Nairobi,Kenya" -> "Nairobi"
+        city_name = location.split(",")[0].strip() if location else ""
+        trigger = UrlPatternTrigger(
+            domains=["wttr.in"],
+            url_contains=city_name if city_name else None,
+        )
         return (trigger, FetchStrategy.FIRST)
 
 
@@ -391,7 +400,7 @@ class MultiDayWeatherTemplate(QuestionTemplate):
     """
 
     def __init__(self, use_chinese: bool = False):
-        super().__init__("multi_day_weather")
+        super().__init__("multi_day")
         self.use_chinese = use_chinese
 
         # Register variables
@@ -531,7 +540,7 @@ class MultiDayWeatherTemplate(QuestionTemplate):
 - Score 0.0: Answers disagree"""
 
         if question_type == MultiDayQuestionType.AVERAGE:
-            tolerance = "0°C (exact match)" if "temp" in metric_type.lower() else "10%"
+            tolerance = "2°C" if "temp" in metric_type.lower() else "10%"
             return f"""Task-Specific Rules (Multi-Day Weather - Average Value):
 - The question asks for the AVERAGE value over {num_days} days
 - Expected answer is a single averaged value
@@ -539,7 +548,7 @@ class MultiDayWeatherTemplate(QuestionTemplate):
 - Score 0.0: Difference exceeds {tolerance}"""
 
         else:  # DAILY
-            tolerance = "0°C (exact match)" if "temp" in metric_type.lower() else "10%"
+            tolerance = "2°C" if "temp" in metric_type.lower() else "10%"
             return f"""Task-Specific Rules (Multi-Day Weather - Daily Values):
 - The question asks for EACH DAY's value separately over {num_days} days
 - Expected answer lists {num_days} values, one per day
@@ -660,9 +669,17 @@ class MultiDayWeatherTemplate(QuestionTemplate):
         validation_info: Dict[str, Any]
     ) -> tuple:
         """
-        Multi-day weather: fetch when AI visits wttr.in.
+        Multi-day weather: fetch when AI visits the specific location's page.
 
-        Strategy: FIRST - same as single-day weather.
+        Uses city name for URL matching (AI may use short URLs).
+
+        Strategy: FIRST - weather data is stable within a single session.
         """
-        trigger = UrlPatternTrigger(domains=["wttr.in"])
+        location = validation_info.get("location", "")
+        # Extract city name for flexible matching
+        city_name = location.split(",")[0].strip() if location else ""
+        trigger = UrlPatternTrigger(
+            domains=["wttr.in"],
+            url_contains=city_name if city_name else None,
+        )
         return (trigger, FetchStrategy.FIRST)

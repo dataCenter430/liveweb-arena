@@ -106,12 +106,30 @@ class UrlPatternTrigger(GroundTruthTrigger):
             if not self.url_regex.search(url):
                 return False
 
-        # Check simple contains
+        # Check simple contains (with URL normalization for robust matching)
         if self.url_contains:
-            if self.url_contains not in url:
+            if not self._normalized_contains(url, self.url_contains):
                 return False
 
         return True
+
+    def _normalized_contains(self, url: str, pattern: str) -> bool:
+        """
+        Check if URL contains pattern with normalization.
+
+        Handles URL encoding variations:
+        - "Hong Kong" vs "Hong+Kong" vs "Hong%20Kong"
+        - Case differences in paths
+        """
+        from urllib.parse import unquote
+
+        # Normalize URL: decode and replace + with space
+        url_normalized = unquote(url.replace("+", " ")).lower()
+
+        # Normalize pattern: decode and replace + with space
+        pattern_normalized = unquote(pattern.replace("+", " ")).lower()
+
+        return pattern_normalized in url_normalized
 
     @property
     def description(self) -> str:
@@ -329,16 +347,19 @@ class GroundTruthManager:
         )
         self._fetch_funcs[subtask_tag] = fetch_func
 
-    async def check_triggers(self, url: str) -> List[str]:
+    async def check_triggers(self, url: str, max_retries: int = 3) -> List[str]:
         """
         Check if any triggers match the current URL and fetch ground truth.
 
         Args:
             url: The URL the agent just navigated to
+            max_retries: Maximum retry attempts for network errors
 
         Returns:
             List of subtask tags that were triggered and fetched
         """
+        import asyncio
+
         triggered = []
 
         for tag, state in self.states.items():
@@ -348,31 +369,58 @@ class GroundTruthManager:
             if not state.should_fetch_again():
                 continue
 
-            # Fetch ground truth
+            # Fetch ground truth with retry for network errors
             fetch = GroundTruthFetch(url=url, value=None)
-            try:
-                fetch_func = self._fetch_funcs[tag]
-                fetch.value = await fetch_func()
-            except Exception as e:
-                fetch.error = str(e)
+            last_error = None
+
+            for attempt in range(max_retries):
+                try:
+                    fetch_func = self._fetch_funcs[tag]
+                    fetch.value = await fetch_func()
+                    fetch.error = None  # Clear any previous error
+                    break
+                except Exception as e:
+                    last_error = e
+                    # Retry on network-related errors
+                    error_name = type(e).__name__
+                    if any(err in error_name for err in ['Timeout', 'Connect', 'Network']):
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(1.0 * (attempt + 1))
+                            continue
+                    # Non-retryable error or max retries reached
+                    fetch.error = str(e)
+                    break
 
             state.fetches.append(fetch)
             triggered.append(tag)
 
         return triggered
 
-    async def fetch_remaining(self):
+    async def fetch_remaining(self, max_retries: int = 3):
         """Fetch ground truth for any subtasks that were never triggered."""
+        import asyncio
+
         for tag, state in self.states.items():
             if state.triggered:
                 continue
 
             fetch = GroundTruthFetch(url="fallback", value=None)
-            try:
-                fetch_func = self._fetch_funcs[tag]
-                fetch.value = await fetch_func()
-            except Exception as e:
-                fetch.error = str(e)
+
+            for attempt in range(max_retries):
+                try:
+                    fetch_func = self._fetch_funcs[tag]
+                    fetch.value = await fetch_func()
+                    fetch.error = None
+                    break
+                except Exception as e:
+                    # Retry on network-related errors
+                    error_name = type(e).__name__
+                    if any(err in error_name for err in ['Timeout', 'Connect', 'Network']):
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(1.0 * (attempt + 1))
+                            continue
+                    fetch.error = str(e)
+                    break
 
             state.fetches.append(fetch)
 

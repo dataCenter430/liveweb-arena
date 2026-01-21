@@ -288,6 +288,16 @@ class StooqHistoricalTemplate(QuestionTemplate):
         )
 
     def get_ground_truth_trigger(self, validation_info: dict) -> tuple:
-        """Historical queries: FIRST for single stock lookups."""
-        trigger = UrlPatternTrigger(domains=["stooq.com"])
+        """
+        Historical query: fetch when AI visits the specific symbol's page.
+
+        Uses symbol-specific URL matching for precise synchronization.
+
+        Strategy: FIRST - single stock query.
+        """
+        symbol = validation_info.get("symbol", "")
+        trigger = UrlPatternTrigger(
+            domains=["stooq.com"],
+            url_contains=symbol if symbol else None,
+        )
         return (trigger, FetchStrategy.FIRST)

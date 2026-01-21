@@ -29,7 +29,7 @@ class TimeOfDayWeatherTemplate(QuestionTemplate):
     """
 
     def __init__(self):
-        super().__init__("time_of_day_weather")
+        super().__init__("time_of_day")
 
         self.register_variable(LocationVariable(allowed_types=[LocationType.CITY_NAME]))
         self.register_variable(DateVariable(
@@ -203,9 +203,17 @@ class TimeOfDayWeatherTemplate(QuestionTemplate):
 
     def get_ground_truth_trigger(self, validation_info: Dict[str, Any]) -> tuple:
         """
-        Time-of-day weather: fetch when AI visits wttr.in.
+        Time-of-day weather: fetch when AI visits the specific location's page.
 
-        Strategy: FIRST - same as other weather templates.
+        Uses city name for URL matching (AI may use short URLs).
+
+        Strategy: FIRST - weather data is stable within a single session.
         """
-        trigger = UrlPatternTrigger(domains=["wttr.in"])
+        location = validation_info.get("location", "")
+        # Extract city name for flexible matching
+        city_name = location.split(",")[0].strip() if location else ""
+        trigger = UrlPatternTrigger(
+            domains=["wttr.in"],
+            url_contains=city_name if city_name else None,
+        )
         return (trigger, FetchStrategy.FIRST)

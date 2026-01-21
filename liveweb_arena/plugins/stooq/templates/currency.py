@@ -269,6 +269,16 @@ The agent must:
         )
 
     def get_ground_truth_trigger(self, validation_info: dict) -> tuple:
-        """Currency queries: FIRST for simple conversion."""
-        trigger = UrlPatternTrigger(domains=["stooq.com"])
+        """
+        Currency query: fetch when AI visits the specific currency pair's page.
+
+        Uses symbol-specific URL matching for precise synchronization.
+
+        Strategy: FIRST - single currency pair query.
+        """
+        symbol = validation_info.get("symbol", "")
+        trigger = UrlPatternTrigger(
+            domains=["stooq.com"],
+            url_contains=symbol if symbol else None,
+        )
         return (trigger, FetchStrategy.FIRST)

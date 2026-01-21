@@ -187,6 +187,19 @@ Agent should click the address to get the full address from the URL or account p
         return validator.validate(answer, ground_truth)
 
     def get_ground_truth_trigger(self, validation_info: dict) -> tuple:
-        """Taostats subnet: trigger when AI visits taostats.io."""
-        trigger = UrlPatternTrigger(domains=["taostats.io"])
+        """
+        Taostats subnet: fetch when AI visits the specific subnet's page.
+
+        Uses subnet_id-specific URL matching (e.g., /subnets/27) to ensure
+        ground truth is fetched at the exact moment AI observes that subnet.
+
+        Strategy: FIRST - single subnet query.
+        """
+        subnet_id = validation_info.get("subnet_id", "")
+        # Match URL like /subnets/27
+        url_pattern = f"/subnets/{subnet_id}" if subnet_id else None
+        trigger = UrlPatternTrigger(
+            domains=["taostats.io"],
+            url_contains=url_pattern,
+        )
         return (trigger, FetchStrategy.FIRST)

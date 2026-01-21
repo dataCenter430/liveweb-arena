@@ -1,5 +1,6 @@
 """Agent loop for browser-based task execution"""
 
+import asyncio
 from typing import Any, Callable, List, Optional, Tuple
 
 from .browser import BrowserSession
@@ -11,6 +12,24 @@ from ..utils.logger import log
 
 # Type for navigation callback: async (url: str) -> None
 NavigationCallback = Callable[[str], Any]
+
+# URL patterns that indicate browser/network errors (not AI's fault)
+# Note: about:blank is NOT an error - it's the initial page where AI starts
+ERROR_URL_PATTERNS = [
+    "chrome-error://",
+    "about:neterror",
+]
+
+
+def is_error_page(url: str) -> bool:
+    """Check if URL indicates a browser error (not AI's fault).
+
+    Note: about:blank is NOT considered an error page - it's the starting point.
+    Only actual error pages like chrome-error:// are treated specially.
+    """
+    if not url:
+        return False
+    return any(pattern in url.lower() for pattern in ERROR_URL_PATTERNS)
 
 
 class AgentLoop:
@@ -85,12 +104,57 @@ class AgentLoop:
 
         obs = await self._session.goto("about:blank")
         consecutive_errors = 0
+        consecutive_error_pages = 0
+        max_error_page_retries = 10  # Prevent infinite loops on persistent network issues
 
-        for step_num in range(self._max_steps):
-            log("Agent", f"Step {step_num + 1}/{self._max_steps}, url={obs.url[:50]}")
+        effective_step = 0  # Only count steps on valid pages
+        iteration = 0  # Total iterations including error page handling
+        last_goto_url = None  # Track last navigation URL for retry
+
+        while effective_step < self._max_steps:
+            iteration += 1
+            # Safety limit to prevent infinite loops
+            if iteration > self._max_steps * 3:
+                log("Agent", "Too many iterations, breaking loop", force=True)
+                break
+
+            # Check if we're on an error page
+            if is_error_page(obs.url):
+                consecutive_error_pages += 1
+                log("Agent", f"Error page detected ({consecutive_error_pages}/{max_error_page_retries}): {obs.url[:50]}")
+
+                if consecutive_error_pages >= max_error_page_retries:
+                    log("Agent", "Max error page retries reached", force=True)
+                    break
+
+                # Wait with backoff before retrying (don't count as a step)
+                wait_time = min(2 * consecutive_error_pages, 10)
+                await asyncio.sleep(wait_time)
+
+                # If we have a last goto URL, retry navigation automatically
+                if last_goto_url:
+                    log("Agent", f"Retrying navigation to: {last_goto_url[:50]}")
+                    old_url = obs.url
+                    obs = await self._session.goto(last_goto_url)
+                    # Fire navigation callback if retry succeeded (URL changed from error page)
+                    if self._on_navigation and obs.url != old_url and not is_error_page(obs.url):
+                        try:
+                            await self._on_navigation(obs.url)
+                        except Exception as e:
+                            log("Agent", f"Navigation callback error: {e}")
+                else:
+                    # Get fresh observation after waiting
+                    obs = await self._session.get_observation()
+                continue
+
+            # Reset error page counter on valid page
+            consecutive_error_pages = 0
+            effective_step += 1
+            log("Agent", f"Step {effective_step}/{self._max_steps}, url={obs.url[:50]}")
 
             # Pre-save observation so it's not lost if LLM call times out
             current_obs = obs
+            step_num = effective_step - 1  # 0-indexed step number for trajectory
             user_prompt = self._policy.build_step_prompt(current_obs, self._trajectory)
 
             try:
@@ -152,6 +216,10 @@ class AgentLoop:
                     obs = await self._session.execute_action(action)
                     action_result = "Success"
 
+                    # Track goto URL for retry on error pages
+                    if action.action_type == "goto":
+                        last_goto_url = action.params.get("url", "")
+
                     # Fire navigation callback if URL changed
                     if self._on_navigation and obs.url != old_url:
                         try:
@@ -168,11 +236,11 @@ class AgentLoop:
                 action=action,
                 action_result=action_result,
             ))
-        else:
-            # Loop completed without break - max_steps reached
-            if self._final_answer is None:
-                self._max_steps_reached = True
-                log("Agent", f"Max steps ({self._max_steps}) reached without completion", force=True)
+
+        # Check if max steps reached without completion
+        if self._final_answer is None and effective_step >= self._max_steps:
+            self._max_steps_reached = True
+            log("Agent", f"Max steps ({self._max_steps}) reached without completion", force=True)
 
         log("Agent", f"Finished with {len(self._trajectory)} steps")
         return self._trajectory, self._final_answer, self.get_usage()

@@ -135,6 +135,10 @@ class BrowserSession:
 
         return await self._get_observation()
 
+    async def get_observation(self, max_retries: int = 3) -> BrowserObservation:
+        """Get current browser observation with retry logic for navigation timing"""
+        return await self._get_observation(max_retries)
+
     async def _get_observation(self, max_retries: int = 3) -> BrowserObservation:
         """Get current browser observation with retry logic for navigation timing"""
         for attempt in range(max_retries):

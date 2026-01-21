@@ -342,9 +342,16 @@ class StooqPriceTemplate(QuestionTemplate):
         validation_info: Dict[str, Any]
     ) -> tuple:
         """
-        Stooq price: fetch when AI visits stooq.com.
+        Stooq price: fetch when AI visits the specific symbol's page.
+
+        Uses symbol-specific URL matching (e.g., ?s=aapl.us) to ensure
+        ground truth is fetched at the exact moment AI observes that stock.
 
         Strategy: FIRST - single stock price is stable within session.
         """
-        trigger = UrlPatternTrigger(domains=["stooq.com"])
+        symbol = validation_info.get("symbol", "")
+        trigger = UrlPatternTrigger(
+            domains=["stooq.com"],
+            url_contains=symbol if symbol else None,
+        )
         return (trigger, FetchStrategy.FIRST)

@@ -103,7 +103,7 @@ async def main():
         type=str,
         nargs="+",
         default=None,
-        help="Templates to use (e.g., weather/multi_day_weather stooq/stooq_price)",
+        help="Templates to use (e.g., weather/multi_day stooq/stooq_price)",
     )
     parser.add_argument(
         "--task-id",

@@ -20,7 +20,7 @@ class WeatherPlugin(BasePlugin):
     - time_of_day: Time-period specific queries (morning/afternoon/evening/night)
     """
 
-    # Weather-specific template names (no prefix, unlike stooq_* and taostats_*)
+    # Weather-specific template names
     WEATHER_TEMPLATES = {"location_name", "multi_day", "time_of_day"}
 
     def __init__(self, templates: List[str] = None, use_chinese: bool = False):
@@ -60,9 +60,10 @@ class WeatherPlugin(BasePlugin):
     def usage_hint(self) -> str:
         return """## wttr.in (Weather)
 - URL: https://wttr.in/{city} (e.g., /London, /New+York, /~Eiffel+Tower)
-- Shows current conditions + 3-day forecast (Morning/Noon/Evening/Night)
-- Temperature +25(28)°C means 25°C actual, 28°C feels-like
-- For humidity: use ?format=j1 for JSON with `weather[0..2].hourly[*].humidity`
+- Shows current conditions + 3-day forecast with 4 time periods per day
+- Time periods: Morning (06:00), Noon (12:00), Evening (18:00), Night (00:00)
+- Temperature format: +25(28)°C means 25°C actual, 28°C feels-like
+- Each time period shows: temperature, wind, humidity, precipitation chance
 """
 
     async def generate_task(

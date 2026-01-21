@@ -35,9 +35,9 @@ class TaskRegistry:
     # IDs are permanent, only append new ones
     TEMPLATES: Dict[int, Tuple[str, str]] = {
         # Weather templates
-        1: ("weather", "location_name_weather"),
-        2: ("weather", "time_of_day_weather"),
-        3: ("weather", "multi_day_weather"),
+        1: ("weather", "location_name"),
+        2: ("weather", "time_of_day"),
+        3: ("weather", "multi_day"),
 
         # Stooq templates
         10: ("stooq", "stooq_price"),
