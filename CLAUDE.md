@@ -6,35 +6,41 @@
 2. **Engineering First** - Every change should improve overall project structure
 3. **Zero Redundancy** - No redundant code allowed
 4. **Fix Root Cause** - Never patch over problems, always solve at the root
-5. **Test Driven** - Every bug fix must have a corresponding test case
-6. **File Size** - Keep files under 500 lines
-7. **Import Style** - Use absolute imports for cross-package (`liveweb_arena.core.xxx`), relative for same package
-8. **Commit Rules** - Only commit when explicitly asked; keep messages concise
-9. **Template Testing** - Every new question template must be tested via `eval.py` with multiple seeds to verify the entire evaluation pipeline works correctly
+5. **File Size** - Keep files under 500 lines
+6. **Import Style** - Use absolute imports for cross-package (`liveweb_arena.core.xxx`), relative for same package
+7. **Commit Rules** - Only commit when explicitly asked; keep messages concise
+8. **Template Testing** - Every new question template must be tested via `eval.py` with multiple seeds to verify the entire evaluation pipeline works correctly
 
 ## Template Design Guidelines
 
-1. **Parameterization over Enumeration**
-   - Use Variable classes with large pools (30+ items)
-   - Never hardcode specific entity names in question patterns
-   - Seed-based sampling ensures reproducibility without memorization
+**Core Principle**: Templates must test real web interaction ability, NOT memorization.
 
-2. **Real-time Data Dependency**
-   - Questions must require precise data that LLMs cannot reliably recall
-   - Prefer runtime, exact dates, specific credits over general knowledge
-   - Avoid yes/no questions about well-known facts
+### 1. Anti-Memorization Design
 
-3. **Verifiability Chain**
-   - Every question must have: Template -> API endpoint -> Ground truth
-   - API response must match website display (same source)
-   - Validation tolerance must account for format differences only
+Fixed question pool + fixed answers = memorizable. Models can "cheat" by recalling Q&A pairs from training data without actually browsing.
 
-4. **Solvability Guarantee**
-   - Target website must be publicly accessible
-   - Required information must be visible without authentication
-   - Expected interaction steps should be realistic (5-15 for single questions)
+**Design strategies to prevent memorization:**
+- **Dynamic data**: Answers that change over time (e.g., counts that grow as new content is added)
+- **Computation required**: Aggregation, comparison, or calculation that cannot be pre-memorized
+- **Obscure queries**: Information rarely covered in training data (e.g., 7th billed actor vs lead actor)
+- **Large entity pools**: Combinatorial space too large to enumerate all possible Q&A pairs
 
-5. **Difficulty Stratification**
-   - Easy: Single-hop, direct URL navigation, one data point
-   - Medium: Search required, or multiple data points from same page
-   - Hard: Multi-page navigation, comparison, or aggregation
+**Risk assessment**: Prefer templates where answers are dynamic or require real-time computation. Avoid templates with small fixed entity sets and static attributes.
+
+### 2. Verifiability
+
+- Every question must have a clear path: Template -> API endpoint -> Ground truth
+- API response and website display must share the same data source
+- Validation tolerance accounts for timing-related differences (data may change between agent browsing and ground truth fetch) and format variations, not for agent capability errors
+
+### 3. Solvability
+
+- Target website must be publicly accessible without authentication
+- Required information must be visible on the page
+- Expected steps should be minimal for theoretical completion, with reasonable buffer (not extremely tight limits)
+
+### 4. Difficulty Stratification
+
+- **Easy**: Single-hop, direct URL navigation, one data point extraction
+- **Medium**: Search required, or multiple data points from same page
+- **Hard**: Multi-page navigation, cross-reference, or aggregation across multiple sources
