@@ -56,6 +56,9 @@ class TaskRegistry:
 
         # CoinGecko templates
         30: ("coingecko", "coingecko_price"),
+        31: ("coingecko", "coingecko_volume"),
+        32: ("coingecko", "coingecko_comparison"),
+        33: ("coingecko", "coingecko_rank"),
 
         # Add new templates here with new IDs...
     }
