@@ -17,6 +17,7 @@ from liveweb_arena.plugins.weather import WeatherPlugin
 from liveweb_arena.plugins.taostats import TaostatsPlugin
 from liveweb_arena.plugins.stooq import StooqPlugin
 from liveweb_arena.plugins.coingecko import CoinGeckoPlugin
+from liveweb_arena.plugins.tmdb import TMDBPlugin
 from liveweb_arena.core.validators.llm_validator import validate_answers_with_llm
 from liveweb_arena.utils.llm_client import LLMClient
 from liveweb_arena.utils.logger import log
@@ -40,6 +41,7 @@ class Actor:
         "taostats": TaostatsPlugin,
         "stooq": StooqPlugin,
         "coingecko": CoinGeckoPlugin,
+        "tmdb": TMDBPlugin,
     }
 
     def __init__(self, api_key: str = None):
