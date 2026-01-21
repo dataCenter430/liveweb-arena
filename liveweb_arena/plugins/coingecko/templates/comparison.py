@@ -3,8 +3,6 @@
 import random
 from typing import Any, Dict, List, Optional
 
-import aiohttp
-
 from liveweb_arena.core.validators.base import (
     QuestionTemplate, GeneratedQuestion, ValidationResult, register_template,
 )
@@ -12,6 +10,7 @@ from liveweb_arena.core.ground_truth_trigger import (
     UrlPatternTrigger, FetchStrategy, TriggerConfig
 )
 from .price import CoinVariable, CoinSpec
+from ..api_client import CoinGeckoClient
 
 
 @register_template("coingecko_comparison")
@@ -26,8 +25,6 @@ class CoinGeckoComparisonTemplate(QuestionTemplate):
     - Is Solana's market cap larger than Cardano's?
     - Which coin has more 24h trading volume, DOGE or SHIB?
     """
-
-    COINGECKO_API = "https://api.coingecko.com/api/v3"
 
     # Comparison types
     PRICE_PATTERNS = [
@@ -112,22 +109,7 @@ class CoinGeckoComparisonTemplate(QuestionTemplate):
             return None
 
         try:
-            url = f"{self.COINGECKO_API}/coins/markets"
-            params = {
-                "vs_currency": "usd",
-                "ids": f"{coin1_id},{coin2_id}",
-                "order": "market_cap_desc",
-                "sparkline": "false",
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url, params=params,
-                    timeout=aiohttp.ClientTimeout(total=15)
-                ) as response:
-                    if response.status != 200:
-                        return None
-                    data = await response.json()
+            data = await CoinGeckoClient.get_coin_market_data(f"{coin1_id},{coin2_id}")
 
             if len(data) < 2:
                 return None

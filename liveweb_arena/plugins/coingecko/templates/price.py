@@ -6,14 +6,13 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-import aiohttp
-
 from liveweb_arena.core.validators.base import (
     QuestionTemplate, GeneratedQuestion, ValidationResult, register_template,
 )
 from liveweb_arena.core.ground_truth_trigger import (
     UrlPatternTrigger, FetchStrategy, TriggerConfig
 )
+from ..api_client import CoinGeckoClient
 
 
 class PriceMetric(Enum):
@@ -147,8 +146,6 @@ class CoinGeckoPriceTemplate(QuestionTemplate):
     - What is the market cap of Solana?
     """
 
-    COINGECKO_API = "https://api.coingecko.com/api/v3"
-
     PRICE_PATTERNS = [
         "What is the current price of {coin}?",
         "What is {coin}'s current price in USD?",
@@ -254,23 +251,7 @@ class CoinGeckoPriceTemplate(QuestionTemplate):
             return None
 
         try:
-            url = f"{self.COINGECKO_API}/coins/markets"
-            params = {
-                "vs_currency": "usd",
-                "ids": coin_id,
-                "order": "market_cap_desc",
-                "sparkline": "false",
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url, params=params,
-                    timeout=aiohttp.ClientTimeout(total=15)
-                ) as response:
-                    if response.status != 200:
-                        return None
-                    data = await response.json()
-
+            data = await CoinGeckoClient.get_coin_market_data(coin_id)
             if not data:
                 return None
 

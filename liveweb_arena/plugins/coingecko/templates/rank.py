@@ -3,8 +3,6 @@
 import random
 from typing import Any, Dict, List, Optional
 
-import aiohttp
-
 from liveweb_arena.core.validators.base import (
     QuestionTemplate, GeneratedQuestion, ValidationResult, register_template,
 )
@@ -12,6 +10,7 @@ from liveweb_arena.core.ground_truth_trigger import (
     UrlPatternTrigger, FetchStrategy, TriggerConfig
 )
 from .price import CoinVariable, CoinSpec
+from ..api_client import CoinGeckoClient
 
 
 @register_template("coingecko_rank")
@@ -27,8 +26,6 @@ class CoinGeckoRankTemplate(QuestionTemplate):
     - What rank is Solana by market capitalization?
     - Where does Cardano rank in the crypto market?
     """
-
-    COINGECKO_API = "https://api.coingecko.com/api/v3"
 
     PATTERNS = [
         "What is {coin}'s market cap rank?",
@@ -79,23 +76,7 @@ class CoinGeckoRankTemplate(QuestionTemplate):
             return None
 
         try:
-            url = f"{self.COINGECKO_API}/coins/markets"
-            params = {
-                "vs_currency": "usd",
-                "ids": coin_id,
-                "order": "market_cap_desc",
-                "sparkline": "false",
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url, params=params,
-                    timeout=aiohttp.ClientTimeout(total=15)
-                ) as response:
-                    if response.status != 200:
-                        return None
-                    data = await response.json()
-
+            data = await CoinGeckoClient.get_coin_market_data(coin_id)
             if not data:
                 return None
 

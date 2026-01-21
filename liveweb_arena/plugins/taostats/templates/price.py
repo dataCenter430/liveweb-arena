@@ -2,7 +2,6 @@
 
 import random
 from typing import Any, Dict, List, Optional
-import aiohttp
 
 from liveweb_arena.core.validators.base import (
     QuestionTemplate, GeneratedQuestion, ValidationResult, register_template,
@@ -10,6 +9,7 @@ from liveweb_arena.core.validators.base import (
 from liveweb_arena.core.ground_truth_trigger import (
     UrlPatternTrigger, FetchStrategy, TriggerConfig
 )
+from liveweb_arena.plugins.coingecko.api_client import CoinGeckoClient
 
 
 @register_template("taostats_price")
@@ -17,7 +17,7 @@ class PriceTemplate(QuestionTemplate):
     """
     Template for TAO price queries.
 
-    Ground truth is fetched from CoinGecko API (free, no auth required).
+    Ground truth is fetched from CoinGecko API.
     """
 
     PATTERNS: List[str] = [
@@ -31,8 +31,6 @@ class PriceTemplate(QuestionTemplate):
         "Navigate to taostats.io and report the TAO price in dollars.",
         "What is the current USD value of one Bittensor token?",
     ]
-
-    COINGECKO_API = "https://api.coingecko.com/api/v3/simple/price"
 
     def __init__(self):
         super().__init__("taostats_price")
@@ -67,20 +65,10 @@ class PriceTemplate(QuestionTemplate):
     async def get_ground_truth(self, validation_info: Dict[str, Any]) -> Optional[float]:
         """Fetch TAO price from CoinGecko API"""
         try:
-            async with aiohttp.ClientSession() as session:
-                params = {
-                    "ids": "bittensor",
-                    "vs_currencies": "usd"
-                }
-                async with session.get(
-                    self.COINGECKO_API,
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    if response.status != 200:
-                        return None
-                    data = await response.json()
-                    return data.get("bittensor", {}).get("usd")
+            data = await CoinGeckoClient.get_simple_price("bittensor", "usd")
+            if data:
+                return data.get("bittensor", {}).get("usd")
+            return None
         except Exception:
             return None
 
