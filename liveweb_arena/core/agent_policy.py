@@ -10,7 +10,7 @@ from .models import BrowserAction, BrowserObservation, CompositeTask, Trajectory
 # Valid action types
 VALID_ACTION_TYPES = {
     "goto", "click", "type", "press", "scroll", "wait", "stop",
-    "click_role", "type_role"
+    "click_role", "type_role", "view_more"
 }
 
 # System prompt template - built dynamically with plugin hints
