@@ -265,18 +265,18 @@ class BasePlugin(ABC):
     async def get_ground_truth(self, validation_info: dict):
         """Get ground truth using template's method."""
         from liveweb_arena.core.validators.base import get_template
+        from liveweb_arena.core.ground_truth_trigger import GroundTruthResult
 
         template_name = validation_info.get("template_name") or validation_info.get("_template_name")
         if not template_name:
-            return None
+            return GroundTruthResult.fail("No template_name in validation_info")
 
         template_cls = get_template(template_name)
         if not template_cls:
-            return None
+            return GroundTruthResult.fail(f"Template not found: {template_name}")
 
         template = template_cls()
-        result = await template.get_ground_truth(validation_info)
-        return result.value if result and result.success else None
+        return await template.get_ground_truth(validation_info)
 
     def get_validation_rules(self, validation_info: dict) -> str:
         """Get validation rules from template."""

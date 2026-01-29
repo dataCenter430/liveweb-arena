@@ -109,6 +109,7 @@ class CacheInterceptor:
         r"seedtag\.com",
         r"openx\.net",
         r"btloader\.com",
+        r"tappx\.com",
         r"cloudflare\.com/cdn-cgi/challenge",
         # Generic patterns
         r"usync",

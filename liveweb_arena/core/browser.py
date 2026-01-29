@@ -653,6 +653,8 @@ class BrowserSession:
                         content = "\n".join(position_info[:1]) + "\n" + content
                         if len(position_info) > 1:
                             content += "\n" + position_info[1]
+                        # Add clear truncation notice
+                        content += "\n\n[Page content truncated - use view_more action to see more content]"
                 else:
                     # Content fits in one view - no scrolling needed
                     content = full_content + "\n\n[Page content complete - no need to scroll]"

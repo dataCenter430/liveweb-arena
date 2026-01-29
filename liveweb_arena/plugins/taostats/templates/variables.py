@@ -139,20 +139,23 @@ class SubnetVariable(Variable):
     Variable for Bittensor subnet selection.
 
     Uses taostats API to get active subnets.
+    Limited to top 10 by emission to ensure data is visible on list page.
     """
 
-    def __init__(self, subnet_ids: List[int] = None):
+    def __init__(self, subnet_ids: List[int] = None, top_n: int = 10):
         """
         Initialize subnet variable.
 
         Args:
-            subnet_ids: Specific subnet IDs to sample from (if None, fetches from API)
+            subnet_ids: Specific subnet IDs to sample from (if None, uses top N by emission)
+            top_n: Number of top subnets to use (default 10 for list page visibility)
         """
         super().__init__("subnet", VariableType.NUMERIC)
         if subnet_ids:
             self.subnet_ids = subnet_ids
         else:
-            self.subnet_ids = _fetch_active_subnet_ids()
+            # Use top N subnets that are visible on the first page of taostats.io/subnets
+            self.subnet_ids = _fetch_top_subnet_ids(top_n)
 
     def sample(self, rng: random.Random) -> SubnetSpec:
         subnet_id = rng.choice(self.subnet_ids)

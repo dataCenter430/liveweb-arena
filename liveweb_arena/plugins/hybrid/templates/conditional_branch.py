@@ -305,9 +305,116 @@ class HybridConditionalBranchTemplate(QuestionTemplate):
         """Validate that agent took correct branch and reported correct value."""
         import re
 
+        # First, determine the correct branch (even if we can't get target value)
+        condition_asset = validation_info.get("condition_asset", {})
+        threshold = validation_info.get("threshold", 2.0)
+
+        try:
+            condition_change = await get_crypto_24h_change(
+                condition_asset.get("asset_id", "")
+            )
+        except Exception as e:
+            # Can't even determine the branch - GT truly unavailable
+            return ValidationResult(
+                score=0.0,
+                is_correct=False,
+                expected=None,
+                actual=answer,
+                details=f"Cannot determine branch: {e}",
+            )
+
+        # Determine correct branch
+        if condition_change > threshold:
+            correct_branch = BranchType.POSITIVE
+            correct_target = validation_info.get("positive_target", {})
+        elif condition_change < -threshold:
+            correct_branch = BranchType.NEGATIVE
+            correct_target = validation_info.get("negative_target", {})
+        else:
+            correct_branch = BranchType.NEUTRAL
+            correct_target = validation_info.get("neutral_target", {})
+
+        correct_target_name = correct_target.get("name", "").lower()
+        answer_lower = answer.lower()
+
+        # Get all targets for wrong-branch detection
+        all_targets = {
+            BranchType.POSITIVE: validation_info.get("positive_target", {}),
+            BranchType.NEGATIVE: validation_info.get("negative_target", {}),
+            BranchType.NEUTRAL: validation_info.get("neutral_target", {}),
+        }
+
+        # Check which target the agent mentioned
+        target_variations = {
+            "nvidia": ["nvda", "nvidia"],
+            "tesla": ["tsla", "tesla"],
+            "amd": ["amd"],
+            "coinbase": ["coin", "coinbase"],
+            "meta": ["meta", "facebook"],
+            "amazon": ["amzn", "amazon"],
+            "microsoft": ["msft", "microsoft"],
+            "gold": ["gold", "xau"],
+            "silver": ["silver", "xag"],
+            "treasury bonds etf": ["tlt", "treasury", "bonds"],
+            "jpmorgan": ["jpm", "jpmorgan"],
+            "walmart": ["wmt", "walmart"],
+            "s&p 500": ["s&p", "sp500", "spx"],
+            "dow jones": ["dow", "dji", "djia"],
+            "nasdaq 100": ["nasdaq", "ndx"],
+            "dax": ["dax"],
+            "ftse 100": ["ftse", "ukx"],
+            "nikkei 225": ["nikkei", "nkx"],
+        }
+
+        def mentions_target(text: str, target_name: str) -> bool:
+            """Check if text mentions a target."""
+            text = text.lower()
+            target_name = target_name.lower()
+            if target_name in text:
+                return True
+            for canonical, variations in target_variations.items():
+                if canonical in target_name:
+                    for var in variations:
+                        if var in text:
+                            return True
+            return False
+
+        # Check if agent mentioned the CORRECT target
+        mentioned_correct = mentions_target(answer_lower, correct_target_name)
+
+        # Check if agent mentioned a WRONG target
+        mentioned_wrong_target = None
+        for branch, target in all_targets.items():
+            if branch != correct_branch:
+                target_name = target.get("name", "")
+                if mentions_target(answer_lower, target_name):
+                    mentioned_wrong_target = target_name
+                    break
+
+        # If agent mentioned wrong target, score 0 (wrong branch)
+        if mentioned_wrong_target and not mentioned_correct:
+            condition_name = condition_asset.get("name", "")
+            return ValidationResult(
+                score=0.0,
+                is_correct=False,
+                expected=f"{correct_target_name} (branch: {correct_branch.value})",
+                actual=answer,
+                details=f"Wrong branch: mentioned {mentioned_wrong_target}, but {condition_name} was {condition_change:+.2f}% (threshold ±{threshold}%), correct target is {correct_target_name}",
+            )
+
+        # Now try to get full GT for value validation
         result = await self.get_ground_truth(validation_info)
 
         if not result.success:
+            # If we know agent mentioned correct target but can't verify value
+            if mentioned_correct:
+                return ValidationResult(
+                    score=0.5,  # Partial credit for correct branch
+                    is_correct=False,
+                    expected=f"{correct_target_name} (value unknown)",
+                    actual=answer,
+                    details=f"Correct branch ({correct_target_name}), but cannot verify value: {result.error}",
+                )
             return ValidationResult(
                 score=0.0,
                 is_correct=False,
@@ -320,57 +427,7 @@ class HybridConditionalBranchTemplate(QuestionTemplate):
         # Format: "TargetName: $XXX.XX | Branch: positive (Condition was +X.XX%)"
         # or:     "TargetName: +X.XX% | Branch: neutral (Condition was +X.XX%)"
 
-        # Extract expected target name
-        target_match = re.match(r"([^:]+):\s*", ground_truth)
-        if not target_match:
-            return ValidationResult(
-                score=0.0,
-                is_correct=False,
-                expected=ground_truth,
-                actual=answer,
-                details="Could not parse ground truth",
-            )
-
-        expected_target = target_match.group(1).lower()
-        answer_lower = answer.lower()
-
-        # Check if answer mentions the correct target
-        target_mentioned = expected_target in answer_lower
-
-        # Also check common variations
-        target_variations = {
-            "nvidia": ["nvda", "nvidia"],
-            "tesla": ["tsla", "tesla"],
-            "amd": ["amd"],
-            "coinbase": ["coin", "coinbase"],
-            "gold": ["gold", "xau", "gc"],
-            "silver": ["silver", "xag", "si"],
-            "treasury bonds etf": ["tlt", "treasury", "bonds"],
-            "s&p 500": ["s&p", "sp500", "spx"],
-            "dow jones": ["dow", "dji", "djia"],
-            "nasdaq 100": ["nasdaq", "ndx"],
-        }
-
-        if not target_mentioned:
-            for canonical, variations in target_variations.items():
-                if canonical in expected_target:
-                    for var in variations:
-                        if var in answer_lower:
-                            target_mentioned = True
-                            break
-                    if target_mentioned:
-                        break
-
-        if not target_mentioned:
-            return ValidationResult(
-                score=0.0,
-                is_correct=False,
-                expected=ground_truth,
-                actual=answer,
-                details="Wrong branch: reported wrong asset",
-            )
-
-        # Check if value is approximately correct
+        # Target already validated above, now check value
         # Extract expected value from ground truth
         value_match = re.search(r":\s*\$?([\d,]+\.?\d*)\s*%?", ground_truth)
         if not value_match:

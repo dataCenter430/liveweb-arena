@@ -256,16 +256,21 @@ class GTCollector:
             from liveweb_arena.core.ground_truth_trigger import GroundTruthResult
             if isinstance(result, GroundTruthResult):
                 if result.success:
-                    self._api_results[tag] = result.value
-                    # Show truncated result
-                    val_str = str(result.value)[:60]
-                    log("GT", f"[{tag}] = {val_str}{'...' if len(str(result.value)) > 60 else ''}")
+                    if result.value:  # Only store truthy values
+                        self._api_results[tag] = result.value
+                        val_str = str(result.value)[:60]
+                        log("GT", f"[{tag}] = {val_str}{'...' if len(str(result.value)) > 60 else ''}")
+                    else:
+                        log("GT", f"[{tag}] FAILED: success=True but value is falsy: {repr(result.value)}")
                 else:
                     log("GT", f"[{tag}] FAILED: {result.error}")
             else:
-                self._api_results[tag] = result
-                val_str = str(result)[:60]
-                log("GT", f"[{tag}] = {val_str}{'...' if len(str(result)) > 60 else ''}")
+                if result:  # Only store truthy values
+                    self._api_results[tag] = result
+                    val_str = str(result)[:60]
+                    log("GT", f"[{tag}] = {val_str}{'...' if len(str(result)) > 60 else ''}")
+                else:
+                    log("GT", f"[{tag}] FAILED: returned falsy value: {repr(result)}")
 
         except Exception as e:
             logger.error(f"GT fetch failed for {tag}: {e}")
@@ -292,7 +297,9 @@ class GTCollector:
         visited = self._visited_urls.get(tag, [])
 
         if tag in self._api_results:
-            return "API returned invalid data"
+            # Tag exists but value is falsy (None, "", etc.)
+            value = self._api_results[tag]
+            return f"API returned invalid data: {repr(value)}"
 
         collected = list(self._collected_api_data.keys())[:5]
         if collected:

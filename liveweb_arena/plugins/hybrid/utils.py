@@ -45,10 +45,10 @@ async def retry_with_backoff(
             last_exception = e
             if attempt < max_retries - 1:
                 delay = min(base_delay * (2 ** attempt), max_delay)
-                logger.warning(f"{operation_name} failed ({attempt + 1}/{max_retries}): {e}")
+                log("GT", f"{operation_name} failed ({attempt + 1}/{max_retries}): {e}", force=True)
                 await asyncio.sleep(delay)
             else:
-                logger.error(f"{operation_name} failed after {max_retries} attempts: {e}")
+                log("GT", f"{operation_name} failed after {max_retries} attempts: {e}", force=True)
 
     raise RuntimeError(f"{operation_name} failed after {max_retries} retries: {last_exception}")
 

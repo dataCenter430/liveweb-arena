@@ -48,15 +48,27 @@ class SubnetInfoTemplate(QuestionTemplate):
             "Find the alpha price for {subnet} on taostats.io.",
             "What's the current price of {subnet}'s alpha token in TAO?",
         ],
+        SubnetMetric.TAO_IN: [
+            "How much TAO is staked in {subnet}?",
+            "What is the total TAO deposited in {subnet}?",
+            "How much TAO has been invested in {subnet}?",
+            "Find the TAO staked amount for {subnet} on taostats.io.",
+            "What's the TAO in value for {subnet}?",
+        ],
     }
 
     def __init__(self):
         super().__init__("taostats_subnet_info")
+        # Use top 10 subnets visible on first page of list
         self.register_variable(SubnetVariable())
-        self.register_variable(MetricVariable())
+        # Only use metrics visible on list page (NAME, PRICE)
+        # OWNER and TAO_IN require detail pages which may not be cached
+        self.register_variable(MetricVariable(allowed_metrics=[
+            SubnetMetric.NAME,
+            SubnetMetric.PRICE,
+        ]))
 
         self.register_validator("name", ExactMatchValidator(case_sensitive=False))
-        self.register_validator("owner", ExactMatchValidator(case_sensitive=False))
         self.register_validator("price", NumericToleranceValidator(
             full_tolerance=0.0001, partial_tolerance=0.001, unit="τ"
         ))
@@ -71,7 +83,9 @@ class SubnetInfoTemplate(QuestionTemplate):
         else:
             metric: MetricSpec = self._variables["metric"].sample(rng)
 
-        patterns = self.PATTERNS.get(metric.metric, ["{subnet}?"])
+        patterns = self.PATTERNS.get(metric.metric)
+        if patterns is None:
+            raise ValueError(f"No patterns defined for metric {metric.metric}. Add patterns to PATTERNS dict.")
         pattern = rng.choice(patterns)
         question_text = pattern.format(subnet=subnet.display_name)
 
@@ -85,7 +99,8 @@ class SubnetInfoTemplate(QuestionTemplate):
 
         return GeneratedQuestion(
             question_text=question_text,
-            start_url=f"https://taostats.io/subnets/{subnet.subnet_id}",
+            # Use list page as start - top 10 subnets are visible there
+            start_url="https://taostats.io/subnets",
             variables={"subnet": subnet, "metric": metric},
             validation_info=validation_info,
             template_name=self.name,
@@ -146,6 +161,11 @@ class SubnetInfoTemplate(QuestionTemplate):
             if price is not None:
                 return GroundTruthResult.ok(f"τ{float(price):.6f}")
             return GroundTruthResult.fail("Price not available in collected data")
+        elif metric == "tao_in":
+            tao_in = subnet_data.get("tao_in")
+            if tao_in is not None:
+                return GroundTruthResult.ok(f"τ{float(tao_in):,.2f}")
+            return GroundTruthResult.fail("TAO staked not available in collected data")
 
         return GroundTruthResult.fail(f"Unknown metric: {metric}")
 
