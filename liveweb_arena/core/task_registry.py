@@ -165,8 +165,7 @@ class TaskRegistry:
         template_ids = cls._combinations[combo_index]
         templates = [cls.TEMPLATES[tid] for tid in template_ids]
 
-        # Derive num_tasks (3-5) from variation_seed
-        num_tasks = (variation_seed % 3) + 3
+        num_tasks = (variation_seed % 3) + 2
 
         return {
             "task_id": task_id,
