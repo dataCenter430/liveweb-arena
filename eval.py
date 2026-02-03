@@ -34,7 +34,7 @@ load_dotenv()
 
 from env import Actor
 from liveweb_arena.utils.logger import set_verbose
-from liveweb_arena.core.task_registry import TaskRegistry, parse_task_id, max_task_id
+from liveweb_arena.core.task_registry import TaskRegistry, max_task_id
 
 
 async def main():
@@ -68,8 +68,8 @@ async def main():
     parser.add_argument(
         "--num-tasks",
         type=int,
-        default=1,
-        help="Number of sub-tasks (1-4, default: 1)",
+        default=None,
+        help="Number of sub-tasks (1-4, default: from task_id or 2)",
     )
     parser.add_argument(
         "--max-steps",
@@ -171,31 +171,20 @@ async def main():
                 raise ValueError(f"Invalid template format: {t}. Use 'plugin/template_name[/variant]'")
         return result
 
-    # Prepare config based on task_id and/or seed
-    if args.task_id is not None:
-        task_config = parse_task_id(args.task_id)
-        seed = args.seed if args.seed is not None else task_config["variation_seed"]
-        num_tasks = args.num_tasks if args.num_tasks != 1 else task_config["num_tasks"]
-        templates = task_config["templates"]
-
-        if verbose:
-            print(f"Task ID: {args.task_id}")
-            print(f"  Templates: {templates}")
-            print(f"  Num tasks: {num_tasks}")
-            print(f"  Seed: {seed}")
-    else:
-        seed = args.seed
-        num_tasks = args.num_tasks
-        templates = parse_templates(args.templates)
+    # Prepare config - task_id parsing is now handled in env.py Actor.evaluate()
+    seed = args.seed
+    num_tasks = args.num_tasks
+    templates = parse_templates(args.templates)
 
     if verbose:
         config_parts = [f"model={args.model}"]
         if args.task_id:
             config_parts.append(f"task_id={args.task_id}")
-        config_parts.append(f"seed={seed or 'random'}")
-        config_parts.append(f"tasks={num_tasks}")
-        if templates:
-            config_parts.append(f"templates={templates}")
+        else:
+            config_parts.append(f"seed={seed or 'random'}")
+            config_parts.append(f"tasks={num_tasks}")
+            if templates:
+                config_parts.append(f"templates={templates}")
         print(f"Config: {', '.join(config_parts)}")
 
     # Determine cache mode from --live flag

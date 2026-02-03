@@ -71,7 +71,7 @@ class Actor:
         base_url: str,
         api_key: Optional[str] = None,
         seed: Optional[int] = None,
-        num_subtasks: int = 2,
+        num_subtasks: Optional[int] = None,
         templates: Optional[List[tuple]] = None,
         max_steps: Optional[int] = None,
         timeout: int = 3600,
@@ -89,7 +89,7 @@ class Actor:
             api_key: Override API key for this evaluation
             seed: Deterministic task generation seed (random if None)
             num_subtasks: Number of sub-tasks (1-4)
-            templates: List of (plugin, template_name) tuples; None = random
+            templates: List of (plugin, template_name) tuples; None = from task_id or random
             max_steps: Max browser interaction steps
             timeout: Total wall-clock budget in seconds
             temperature: LLM temperature
@@ -102,7 +102,22 @@ class Actor:
         """
         start_time = time.time()
 
-        # Generate seed if not provided
+        # Parse task_id to get templates and other config if not explicitly provided
+        if task_id is not None and templates is None:
+            from liveweb_arena.core.task_registry import parse_task_id
+            task_config = parse_task_id(task_id)
+            templates = task_config["templates"]
+            # Use task_id's num_tasks if not explicitly provided
+            if num_subtasks is None:
+                num_subtasks = task_config["num_tasks"]
+            # Use variation_seed if no seed provided
+            if seed is None:
+                seed = task_config["variation_seed"]
+            log("Actor", f"Task ID {task_id} -> templates={templates}, num_subtasks={num_subtasks}")
+
+        # Apply defaults if still None
+        if num_subtasks is None:
+            num_subtasks = 2
         if seed is None:
             seed = random.randint(0, 2**32 - 1)
 

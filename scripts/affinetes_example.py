@@ -25,6 +25,8 @@ Examples:
 
 Environment:
     API_KEY: Required. API key for LLM service.
+    TAOSTATS_API_KEY: Required. API key for taostats.io.
+    COINGECKO_API_KEY: Optional. API key for CoinGecko Pro (free tier works without).
 """
 
 import argparse
@@ -38,15 +40,10 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-try:
-    import affinetes as af
-except ImportError:
-    print("Error: affinetes is not installed.")
-    print("Install it with: pip install git+https://github.com/AffineFoundation/affinetes.git@main")
-    sys.exit(1)
+import affinetes as af
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_IMAGE = "liveweb-arena:latest"
+DEFAULT_IMAGE = "affinefoundation/liveweb-arena:latest"
 CONTAINER_CACHE_DIR = "/var/lib/liveweb-arena/cache"
 
 
@@ -58,18 +55,26 @@ async def main():
     parser.add_argument("--base-url", type=str, default="https://llm.chutes.ai/v1", help="LLM API base URL")
     parser.add_argument("--seed", type=int, default=None, help="Random seed")
     parser.add_argument("--task-id", type=int, default=None, help="Deterministic task ID")
-    parser.add_argument("--num-tasks", type=int, default=1, help="Number of sub-tasks (1-4)")
+    parser.add_argument("--num-tasks", type=int, default=None, help="Number of sub-tasks (1-4, default: from task_id or 2)")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout in seconds")
     parser.add_argument("--pull", action="store_true", help="Pull image from registry")
     parser.add_argument("--force-recreate", action="store_true", help="Force recreate container")
     args = parser.parse_args()
 
-    # Validate API key
-    api_key = os.getenv("API_KEY")
+    # Validate required environment variables
+    api_key = os.getenv("API_KEY") or os.getenv("CHUTES_API_KEY")
     if not api_key:
         print("Error: API_KEY environment variable not set.")
         print("Set it with: export API_KEY='your-key'")
         sys.exit(1)
+
+    taostats_api_key = os.getenv("TAOSTATS_API_KEY")
+    if not taostats_api_key:
+        print("Error: TAOSTATS_API_KEY environment variable not set.")
+        print("Set it with: export TAOSTATS_API_KEY='your-key'")
+        sys.exit(1)
+
+    coingecko_api_key = os.getenv("COINGECKO_API_KEY", "")
 
     # Step 1: Build if requested
     image = args.image
@@ -86,13 +91,23 @@ async def main():
     host_cache = CONTAINER_CACHE_DIR
     print(f"Loading environment from image: {image}")
     print(f"Cache mount: {host_cache} -> {CONTAINER_CACHE_DIR}")
+    env_vars = {
+        "API_KEY": api_key,
+        "LIVEWEB_VERBOSE": True,
+        "TAOSTATS_API_KEY": taostats_api_key,
+    }
+    if coingecko_api_key:
+        env_vars["COINGECKO_API_KEY"] = coingecko_api_key
+
     env = af.load_env(
         image=image,
         mode="docker",
-        env_vars={"API_KEY": api_key},
+        env_vars=env_vars,
         pull=args.pull,
         force_recreate=args.force_recreate,
         volumes={host_cache: {"bind": CONTAINER_CACHE_DIR, "mode": "rw"}},
+        enable_logging=True,
+        log_console=True,
     )
     print("Environment loaded (container started with HTTP server)")
 
@@ -108,13 +123,14 @@ async def main():
         eval_kwargs = {
             "model": args.model,
             "base_url": args.base_url,
-            "num_subtasks": args.num_tasks,
             "timeout": args.timeout,
         }
         if args.seed is not None:
             eval_kwargs["seed"] = args.seed
         if args.task_id is not None:
             eval_kwargs["task_id"] = args.task_id
+        if args.num_tasks is not None:
+            eval_kwargs["num_subtasks"] = args.num_tasks
 
         result = await env.evaluate(**eval_kwargs, _timeout=args.timeout + 60)
 

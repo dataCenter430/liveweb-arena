@@ -80,11 +80,17 @@ class StooqPlugin(BasePlugin):
             https://stooq.com/q/?s=aapl.us -> aapl.us
             https://stooq.com/q/?s=^spx -> ^spx
             https://stooq.com/q/d/?s=gc.f -> gc.f
+            http://stooq.com/q/s/?e=abbv&t= -> abbv (redirected URL format)
         """
         parsed = urlparse(url)
         query = parse_qs(parsed.query)
 
+        # Check for 's' parameter (original format)
         if "s" in query:
             return query["s"][0].lower()
+
+        # Check for 'e' parameter (redirected URL format: /q/s/?e=symbol&t=)
+        if "e" in query:
+            return query["e"][0].lower()
 
         return ""
