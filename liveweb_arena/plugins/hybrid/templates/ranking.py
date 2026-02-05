@@ -348,3 +348,21 @@ class HybridRankingTemplate(QuestionTemplate):
     def get_cache_source(cls) -> str:
         """Return the cache source name for this template."""
         return "hybrid"
+
+    # === Step-wise Reward Interface ===
+
+    def get_target_assets(self, validation_info: Dict[str, Any]) -> set:
+        """Return all assets - must collect all for accurate ranking."""
+        assets = validation_info.get("assets", [])
+        return {a["asset_id"] for a in assets}
+
+    def get_required_domains(self, validation_info: Dict[str, Any]) -> set:
+        """Requires both CoinGecko (crypto) and Stooq (stocks)."""
+        return {"coingecko.com", "stooq.com"}
+
+    def get_reward_overrides(self) -> Optional[Dict[str, float]]:
+        """All assets needed for ranking - higher target bonus."""
+        return {
+            "target_asset_reward": 0.25,
+            "all_targets_bonus": 0.40,
+        }

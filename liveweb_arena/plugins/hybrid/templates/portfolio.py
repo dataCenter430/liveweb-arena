@@ -404,3 +404,21 @@ class HybridPortfolioRebalanceTemplate(QuestionTemplate):
 
     def get_api_fields(self):
         return ["24h_change", "ranking", "spread"]
+
+    # === Step-wise Reward Interface ===
+
+    def get_target_assets(self, validation_info: Dict[str, Any]) -> set:
+        """Return all 4 assets as targets - agent must collect all for ranking."""
+        assets = validation_info.get("assets", [])
+        return {a["asset_id"] for a in assets}
+
+    def get_required_domains(self, validation_info: Dict[str, Any]) -> set:
+        """Requires both CoinGecko (crypto) and Stooq (stocks)."""
+        return {"coingecko.com", "stooq.com"}
+
+    def get_reward_overrides(self) -> Dict[str, float]:
+        """All assets are equally important for ranking."""
+        return {
+            "target_asset_reward": 0.30,
+            "all_targets_bonus": 0.50,
+        }

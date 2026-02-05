@@ -322,3 +322,21 @@ class HybridTopPerformerTemplate(QuestionTemplate):
     def get_api_fields(self):
         """All fields require API aggregation."""
         return ["top_performer", "24h_changes"]
+
+    # === Step-wise Reward Interface ===
+
+    def get_target_assets(self, validation_info: Dict[str, Any]) -> set:
+        """Return all assets - agent must check all to find the best."""
+        assets = validation_info.get("assets", [])
+        return {a["asset_id"] for a in assets}
+
+    def get_required_domains(self, validation_info: Dict[str, Any]) -> set:
+        """Requires both CoinGecko and Stooq for cross-site comparison."""
+        return {"coingecko.com", "stooq.com"}
+
+    def get_reward_overrides(self) -> Optional[Dict[str, float]]:
+        """Standard rewards - finding best performer requires checking all."""
+        return {
+            "target_asset_reward": 0.20,
+            "all_targets_bonus": 0.35,
+        }

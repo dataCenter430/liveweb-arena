@@ -449,3 +449,21 @@ class HybridThresholdAlertTemplate(QuestionTemplate):
 
     def get_api_fields(self):
         return ["24h_change", "price", "condition_evaluation"]
+
+    # === Step-wise Reward Interface ===
+
+    def get_target_assets(self, validation_info: Dict[str, Any]) -> set:
+        """Return all condition assets - each needs to be checked."""
+        conditions = validation_info.get("conditions", [])
+        return {c["asset_id"] for c in conditions}
+
+    def get_required_domains(self, validation_info: Dict[str, Any]) -> set:
+        """Requires both CoinGecko (crypto) and Stooq (stocks)."""
+        return {"coingecko.com", "stooq.com"}
+
+    def get_reward_overrides(self) -> Optional[Dict[str, float]]:
+        """Each condition is important - moderate target reward."""
+        return {
+            "target_asset_reward": 0.20,
+            "all_targets_bonus": 0.30,
+        }

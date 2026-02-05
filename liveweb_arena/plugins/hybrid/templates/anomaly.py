@@ -425,3 +425,21 @@ class HybridAnomalyDetectionTemplate(QuestionTemplate):
 
     def get_api_fields(self):
         return ["24h_change", "anomaly_detection", "statistics"]
+
+    # === Step-wise Reward Interface ===
+
+    def get_target_assets(self, validation_info: Dict[str, Any]) -> set:
+        """Return all assets - must check all to find anomalies."""
+        assets = validation_info.get("assets", [])
+        return {a["asset_id"] for a in assets}
+
+    def get_required_domains(self, validation_info: Dict[str, Any]) -> set:
+        """Requires both CoinGecko and Stooq."""
+        return {"coingecko.com", "stooq.com"}
+
+    def get_reward_overrides(self) -> Optional[Dict[str, float]]:
+        """All assets needed for statistical analysis."""
+        return {
+            "target_asset_reward": 0.20,
+            "all_targets_bonus": 0.35,
+        }

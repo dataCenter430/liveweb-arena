@@ -507,3 +507,38 @@ class HybridConditionalBranchTemplate(QuestionTemplate):
     def get_api_fields(self):
         """All fields require API aggregation."""
         return ["condition_value", "target_value", "branch_decision"]
+
+    # === Step-wise Reward Interface ===
+
+    def get_target_assets(self, validation_info: Dict[str, Any]) -> set:
+        """
+        Return condition asset and all possible target assets.
+
+        Note: Agent doesn't know which branch is correct until checking
+        condition, so we include all targets but only require the condition.
+        """
+        targets = set()
+        # Condition asset is essential
+        condition = validation_info.get("condition_asset", {})
+        if condition.get("asset_id"):
+            targets.add(condition["asset_id"])
+        # Include all possible branch targets
+        for key in ["positive_target", "negative_target", "neutral_target"]:
+            target = validation_info.get(key, {})
+            if target.get("asset_id"):
+                targets.add(target["asset_id"])
+        return targets
+
+    def get_required_domains(self, validation_info: Dict[str, Any]) -> set:
+        """Requires CoinGecko (condition) and Stooq (targets)."""
+        return {"coingecko.com", "stooq.com"}
+
+    def get_reward_overrides(self) -> Optional[Dict[str, float]]:
+        """
+        Conditional branching - lower all_targets bonus since only
+        subset of targets are needed (depends on branch taken).
+        """
+        return {
+            "target_asset_reward": 0.25,
+            "all_targets_bonus": 0.15,  # Lower since not all targets needed
+        }

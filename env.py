@@ -18,6 +18,7 @@ from liveweb_arena.core.gt_collector import GTCollector, GTSourceType, set_curre
 from liveweb_arena.core.cache import CacheManager, CachedPage, CacheFatalError, PageRequirement, normalize_url
 from liveweb_arena.core.interceptor import CacheInterceptor
 from liveweb_arena.core.models import BrowserObservation, CompositeTask, TrajectoryStep
+from liveweb_arena.core.reward import StepwiseRewardCalculator, RewardConfig, RewardBreakdown
 from liveweb_arena.plugins.base import BasePlugin
 from liveweb_arena.plugins import get_plugin, get_all_plugins
 from liveweb_arena.core.validators.llm_validator import validate_answers_with_llm
@@ -95,6 +96,11 @@ class EpisodeState:
     # Metrics
     start_time: float = field(default_factory=time.time)
     last_observation: Optional[BrowserObservation] = None
+
+    # Step-wise reward tracking
+    reward_calculator: Optional[StepwiseRewardCalculator] = None
+    cumulative_reward: float = 0.0
+    reward_history: List[RewardBreakdown] = field(default_factory=list)
 
 
 class Actor:
@@ -790,6 +796,34 @@ class Actor:
             )
             set_current_gt_collector(gt_collector)
 
+            # Initialize step-wise reward calculator
+            target_assets: Set[str] = set()
+            required_domains: Set[str] = set()
+            reward_overrides: Dict[str, float] = {}
+
+            for subtask in task.subtasks:
+                template = subtask.template
+                if template:
+                    # Collect target assets from all subtasks
+                    target_assets.update(
+                        template.get_target_assets(subtask.validation_info)
+                    )
+                    # Collect required domains from all subtasks
+                    required_domains.update(
+                        template.get_required_domains(subtask.validation_info)
+                    )
+                    # Merge reward overrides (later subtasks can override earlier)
+                    overrides = template.get_reward_overrides()
+                    if overrides:
+                        reward_overrides.update(overrides)
+
+            reward_config = RewardConfig(**reward_overrides) if reward_overrides else RewardConfig()
+            reward_calculator = StepwiseRewardCalculator(
+                config=reward_config,
+                target_assets=target_assets,
+                required_domains=required_domains,
+            )
+
             # Build agent policy and system prompt
             policy = AgentPolicy()
             system_prompt = policy.build_system_prompt(task)
@@ -815,6 +849,7 @@ class Actor:
                 system_prompt=system_prompt,
                 max_steps=max_steps,
                 last_observation=obs,
+                reward_calculator=reward_calculator,
             )
             self._episodes[episode_id] = episode
             episode_added = True
@@ -897,10 +932,25 @@ class Actor:
             )
             episode.trajectory.append(step)
 
+            # Calculate parse failure penalty
+            step_reward = 0.0
+            reward_breakdown = RewardBreakdown()
+            if episode.reward_calculator:
+                reward_breakdown = episode.reward_calculator.calculate_step_reward(
+                    url=episode.last_observation.url if episode.last_observation else "",
+                    action_result="Parse failed",
+                    collected_asset_ids=set(episode.gt_collector.get_collected_api_data().keys()),
+                    parse_failed=True,
+                )
+                step_reward = reward_breakdown.total
+                episode.cumulative_reward += step_reward
+                episode.reward_history.append(reward_breakdown)
+
             return OpenEnvResponse(
                 observation=f"Action parse failed. Please provide a valid JSON action.\n\n{self._format_observation(episode, episode.last_observation)}",
                 episode_id=episode_id,
-                info=self._build_info(episode, {"type": "action_parse", "retryable": True}),
+                reward=step_reward,
+                info=self._build_info(episode, {"type": "action_parse", "retryable": True}, reward_breakdown),
             )
 
         # Handle stop action
@@ -958,6 +1008,27 @@ class Actor:
         episode.trajectory.append(step)
         episode.last_observation = obs
 
+        # Calculate step-wise reward
+        step_reward = 0.0
+        reward_breakdown = RewardBreakdown()
+        if episode.reward_calculator:
+            # Determine if URL was blocked
+            is_blocked = "blocked" in action_result.lower() if action_result else False
+
+            # Get collected asset IDs for progress tracking
+            collected_ids = set(episode.gt_collector.get_collected_api_data().keys())
+
+            reward_breakdown = episode.reward_calculator.calculate_step_reward(
+                url=obs.url if obs else "",
+                action_result=action_result,
+                collected_asset_ids=collected_ids,
+                is_blocked=is_blocked,
+                parse_failed=False,
+            )
+            step_reward = reward_breakdown.total
+            episode.cumulative_reward += step_reward
+            episode.reward_history.append(reward_breakdown)
+
         # Check max steps
         if episode.current_step >= episode.max_steps:
             episode.truncated = True
@@ -971,9 +1042,10 @@ class Actor:
         return OpenEnvResponse(
             observation=observation,
             episode_id=episode_id,
+            reward=step_reward,
             done=episode.done,
             truncated=episode.truncated,
-            info=self._build_info(episode),
+            info=self._build_info(episode, reward_breakdown=reward_breakdown),
         )
 
     async def state(self, episode_id: Optional[str] = None) -> OpenEnvResponse:
@@ -1095,6 +1167,7 @@ class Actor:
         self,
         episode: Optional[EpisodeState],
         error: Optional[Dict[str, Any]] = None,
+        reward_breakdown: Optional[RewardBreakdown] = None,
     ) -> Dict[str, Any]:
         """Build info dict for OpenEnvResponse."""
         info: Dict[str, Any] = {}
@@ -1111,6 +1184,14 @@ class Actor:
                 info["failure_reason"] = episode.failure_reason
             if episode.final_answer:
                 info["final_answer"] = episode.final_answer
+
+            # Add reward tracking info
+            info["cumulative_reward"] = episode.cumulative_reward
+            if episode.reward_calculator:
+                info["reward_state"] = episode.reward_calculator.get_state()
+
+        if reward_breakdown:
+            info["reward_breakdown"] = reward_breakdown.to_dict()
 
         if error:
             info["error"] = error

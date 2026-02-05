@@ -417,6 +417,51 @@ class QuestionTemplate(ABC):
         """
         return None
 
+    # === Step-wise Reward Interface ===
+    # Templates can override these methods to provide reward-relevant information.
+
+    def get_target_assets(self, validation_info: Dict[str, Any]) -> set:
+        """
+        Return the set of target asset IDs this template requires.
+
+        Used for step-wise reward calculation. When an agent collects
+        a target asset, it receives a bonus reward.
+
+        Args:
+            validation_info: Information about the question
+
+        Returns:
+            Set of asset IDs (e.g., {"bitcoin", "aapl.us"})
+        """
+        return set()
+
+    def get_required_domains(self, validation_info: Dict[str, Any]) -> set:
+        """
+        Return the set of domains this template requires visiting.
+
+        Used for step-wise reward calculation to track cross-site exploration.
+
+        Args:
+            validation_info: Information about the question
+
+        Returns:
+            Set of domain names (e.g., {"coingecko.com", "stooq.com"})
+        """
+        return set()
+
+    def get_reward_overrides(self) -> Optional[Dict[str, float]]:
+        """
+        Return template-specific reward parameter overrides.
+
+        Templates can customize reward values based on task complexity.
+        Keys should match RewardConfig field names.
+
+        Returns:
+            Dict of reward overrides (e.g., {"target_asset_reward": 0.30})
+            or None for default values
+        """
+        return None
+
     def _sample_variables(self, rng: random.Random) -> Dict[str, Any]:
         """Sample all registered variables"""
         return {

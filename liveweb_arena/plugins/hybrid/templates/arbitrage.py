@@ -401,3 +401,28 @@ class HybridArbitrageFinderTemplate(QuestionTemplate):
 
     def get_api_fields(self):
         return ["price", "source_comparison", "percentage_diff"]
+
+    # === Step-wise Reward Interface ===
+
+    def get_target_assets(self, validation_info: Dict[str, Any]) -> set:
+        """Return both primary and secondary asset IDs."""
+        primary_id = validation_info.get("primary_id", "")
+        secondary_id = validation_info.get("secondary_id", "")
+        return {primary_id, secondary_id} - {""}  # Remove empty strings
+
+    def get_required_domains(self, validation_info: Dict[str, Any]) -> set:
+        """Domains depend on sources used."""
+        domains = {"coingecko.com"}  # Always start here
+        secondary = validation_info.get("secondary_source", "")
+        if secondary == "stooq":
+            domains.add("stooq.com")
+        elif secondary == "taostats":
+            domains.add("taostats.io")
+        return domains
+
+    def get_reward_overrides(self) -> Optional[Dict[str, float]]:
+        """Two assets to compare - standard rewards."""
+        return {
+            "target_asset_reward": 0.30,
+            "all_targets_bonus": 0.40,
+        }

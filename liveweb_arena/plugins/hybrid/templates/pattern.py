@@ -487,3 +487,21 @@ class HybridTimeSeriesPatternTemplate(QuestionTemplate):
 
     def get_api_fields(self):
         return ["24h_change", "pattern_detection", "group_statistics"]
+
+    # === Step-wise Reward Interface ===
+
+    def get_target_assets(self, validation_info: Dict[str, Any]) -> set:
+        """Return all assets - pattern detection needs all data."""
+        assets = validation_info.get("assets", [])
+        return {a["asset_id"] for a in assets}
+
+    def get_required_domains(self, validation_info: Dict[str, Any]) -> set:
+        """Primarily CoinGecko for crypto patterns."""
+        return {"coingecko.com"}
+
+    def get_reward_overrides(self) -> Optional[Dict[str, float]]:
+        """All assets important for pattern detection."""
+        return {
+            "target_asset_reward": 0.20,
+            "all_targets_bonus": 0.35,
+        }
