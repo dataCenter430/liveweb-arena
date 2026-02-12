@@ -112,6 +112,7 @@ class TaskRegistry:
         75: ("hackernews", "hackernews_multi_condition_filter"),
         76: ("hackernews", "hackernews_extrema_comparison"),
         77: ("hackernews", "hackernews_category_comparison"),
+        78: ("hackernews", "hackernews_news_summary"),
 
         # Add new templates here with new IDs (80+)...
     }
@@ -132,8 +133,8 @@ class TaskRegistry:
     TEMPLATE_VERSIONS: List[List[int]] = [
         # Version 1: Original templates (frozen - DO NOT MODIFY)
         [1, 2, 3, 4, 5, 6, 10, 11, 12, 13, 15, 16, 17, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 50, 51, 52, 53, 56, 58, 59, 60],
-        # Version 2: Hacker News templates (redesigned for RL - IDs 70-73 removed)
-        [74, 75, 76, 77],
+        # Version 2: Hacker News templates
+        [74, 75, 76, 77, 78],
         # Add new versions here...
     ]
 
