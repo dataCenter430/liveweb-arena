@@ -231,8 +231,8 @@ class BrowserSession:
                         # Extract attribute and value: a[href*='GOOGL.US'] -> (href, GOOGL.US)
                         match = re.search(r"\[(\w+)\*=['\"]([^'\"]+)['\"]\]", selector, re.IGNORECASE)
                         if match:
-                            attr_name = match.group(1).lower()
-                            attr_value = match.group(2).lower()
+                            attr_name = match.group(1).lower().replace("'", r"\'")
+                            attr_value = match.group(2).lower().replace("'", r"\'")
                             # Use JavaScript to find element with case-insensitive match
                             element_handle = await self._page.evaluate_handle(f"""
                                 () => {{
@@ -481,15 +481,16 @@ class BrowserSession:
                         if self._page.url == original_url and text:
                             try:
                                 # Try calling Stooq's cmp_u function directly
+                                safe_text = text.replace("'", r"\'")
                                 await self._page.evaluate(f"""
                                     () => {{
                                         if (typeof cmp_u === 'function') {{
-                                            cmp_u('{text}');
+                                            cmp_u('{safe_text}');
                                         }} else {{
                                             // Fallback: direct navigation for search-style inputs
                                             const url = window.location.origin;
                                             if (url.includes('stooq')) {{
-                                                window.location.href = url + '/q/?s=' + encodeURIComponent('{text}');
+                                                window.location.href = url + '/q/?s=' + encodeURIComponent('{safe_text}');
                                             }}
                                         }}
                                     }}

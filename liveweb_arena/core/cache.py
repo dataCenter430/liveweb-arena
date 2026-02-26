@@ -152,6 +152,9 @@ async def async_file_lock_acquire(lock_path: Path, timeout: float = 60.0) -> int
             if time.time() - start > timeout:
                 raise TimeoutError(f"Could not acquire lock {lock_path} within {timeout}s")
             await asyncio.sleep(0.1)  # Yield to event loop
+        except Exception:
+            fd.close()
+            raise
 
 
 def async_file_lock_release(fd):

@@ -396,10 +396,11 @@ class GTCollector:
                 # Story detail page: merge with existing data, preserving rank
                 story_id = str(api_data["id"])
                 existing = self._collected_api_data.get(story_id, {})
-                # Preserve rank from homepage if not in detail data
-                if "rank" in existing and "rank" not in api_data:
-                    api_data["rank"] = existing["rank"]
-                self._collected_api_data[story_id] = api_data
+                # Copy to avoid mutating cached/shared api_data reference
+                merged = dict(api_data)
+                if "rank" in existing and "rank" not in merged:
+                    merged["rank"] = existing["rank"]
+                self._collected_api_data[story_id] = merged
                 return f"story[{story_id}]"
             elif "user" in api_data:
                 # User page
