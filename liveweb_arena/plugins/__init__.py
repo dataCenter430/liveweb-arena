@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 # Plugin registry: {plugin_name: plugin_class}
 _plugins: Dict[str, Type[BasePlugin]] = {}
 
+# Temporarily disabled plugins (e.g. external service unavailable).
+# Remove entries here when the service comes back online.
+DISABLED_PLUGINS: set = {"weather"}
+
 
 def _discover_plugins():
     """Discover and load all plugins from subdirectories."""
@@ -36,6 +40,9 @@ def _discover_plugins():
         if subdir.name.startswith("_") or subdir.name.startswith("."):
             continue
         if subdir.name == "__pycache__":
+            continue
+        if subdir.name in DISABLED_PLUGINS:
+            logger.info(f"Skipping disabled plugin: {subdir.name}")
             continue
 
         # Check if it's a valid plugin directory (has __init__.py)
