@@ -36,10 +36,35 @@ Rules:
 - NEVER modify existing TEMPLATE_VERSIONS entries
 - NEVER reuse template IDs that were used before
 - Always add new templates as a new version entry
+
+=== Registry Versions ===
+
+Registry versions control which template combinations are available for task_id sampling.
+Each version defines a set of excluded template IDs (e.g. disabled plugins).
+
+- "v1": Original frozen mapping (all 13,287 combos including weather)
+- "v2": Weather-free (excludes weather + weather-dependent hybrids)
+
+Set via TASK_REGISTRY_VERSION env var. Default: latest version.
 """
 
+import os
 from itertools import combinations
 from typing import Dict, List, Optional, Tuple, Any
+
+
+# Template IDs excluded per registry version.
+# Append new versions here; the latest version is used by default.
+_VERSION_EXCLUSIONS: Dict[str, set] = {
+    "v1": set(),
+    "v2": {1, 2, 3, 4, 5, 6, 59},  # weather(1-6) + hybrid_cross_domain_calc(59)
+}
+
+_LATEST_VERSION = max(_VERSION_EXCLUSIONS.keys(), key=lambda v: int(v[1:]))
+
+# Active registry version. Controls which combinations are available.
+# Override via TASK_REGISTRY_VERSION env var. Default: latest version.
+ACTIVE_REGISTRY_VERSION = os.environ.get("TASK_REGISTRY_VERSION", _LATEST_VERSION)
 
 
 class TaskRegistry:
@@ -54,7 +79,7 @@ class TaskRegistry:
     # Template registry: ID -> (plugin_name, template_name)
     # IDs are permanent, only append new ones
     TEMPLATES: Dict[int, Tuple[str, str]] = {
-        # Weather templates
+        # Weather templates (excluded in registry v2)
         1: ("weather", "location_name"),
         2: ("weather", "time_of_day"),
         3: ("weather", "multi_day"),
@@ -101,7 +126,7 @@ class TaskRegistry:
         # 54, 55, 57: removed (templates deleted)
         56: ("hybrid", "hybrid_anomaly_detection"),
         58: ("hybrid", "hybrid_chained_decision"),
-        59: ("hybrid", "hybrid_cross_domain_calc"),
+        59: ("hybrid", "hybrid_cross_domain_calc"),  # excluded in registry v2
         60: ("hybrid", "hybrid_satisficing_search"),
 
         # Hacker News templates (IDs 70+ to preserve existing task_id mappings)
@@ -156,12 +181,10 @@ class TaskRegistry:
         3. Combinations involving at least one Version 3 ID (may include V1, V2 IDs)
         4. etc.
 
-        This ensures:
-        - Existing task_ids always map to the same questions
-        - New templates only add new task_ids at the end
-        - No need to track STABLE_MAX_ID - versions handle it automatically
+        After generation, combos containing excluded template IDs (per the active
+        registry version) are filtered out. This ensures every task_id in range
+        [1, max_task_id] is valid.
         """
-        all_ids = sorted(cls.TEMPLATES.keys())
         new_combinations = []
 
         # Track which IDs have been "seen" (from previous versions)
@@ -188,6 +211,14 @@ class TaskRegistry:
 
             # Mark this version's IDs as seen
             seen_ids.update(version_ids_set)
+
+        # Filter out excluded templates for active registry version
+        excluded = _VERSION_EXCLUSIONS.get(ACTIVE_REGISTRY_VERSION, set())
+        if excluded:
+            new_combinations = [
+                combo for combo in new_combinations
+                if not any(tid in excluded for tid in combo)
+            ]
 
         cls._combinations = new_combinations
         cls._initialized = True
@@ -235,19 +266,6 @@ class TaskRegistry:
         template_ids = cls._combinations[combo_index]
         templates = [cls.TEMPLATES[tid] for tid in template_ids]
 
-        # Check for disabled plugins
-        from liveweb_arena.plugins import DISABLED_PLUGINS
-        disabled_in_combo = [
-            (tid, plugin) for tid, (plugin, _) in zip(template_ids, templates)
-            if plugin in DISABLED_PLUGINS
-        ]
-        if disabled_in_combo:
-            names = ", ".join(f"{plugin}(id={tid})" for tid, plugin in disabled_in_combo)
-            raise ValueError(
-                f"task_id {task_id} includes disabled plugin(s): {names}. "
-                f"Choose a different task_id."
-            )
-
         num_tasks = (variation_seed % 3) + 2
 
         return {
@@ -275,6 +293,7 @@ class TaskRegistry:
             "max_task_id": cls.max_task_id(),
             "task_ids_per_combo": cls.TASK_IDS_PER_COMBO,
             "combinations_by_size": combo_by_size,
+            "registry_version": ACTIVE_REGISTRY_VERSION,
         }
 
     @classmethod
@@ -284,15 +303,21 @@ class TaskRegistry:
         print("=" * 50)
         print("Task Registry Info")
         print("=" * 50)
+        print(f"Registry version: {stats['registry_version']}")
         print(f"Templates: {stats['num_templates']}")
         print(f"Combinations: {stats['num_combinations']}")
         print(f"Max task_id: {stats['max_task_id']}")
         print(f"Task IDs per combo: {stats['task_ids_per_combo']}")
         print(f"Combinations by size: {stats['combinations_by_size']}")
+        excluded = _VERSION_EXCLUSIONS.get(ACTIVE_REGISTRY_VERSION, set())
+        if excluded:
+            names = [f"{cls.TEMPLATES[tid][1]}(id={tid})" for tid in sorted(excluded)]
+            print(f"Excluded templates: {', '.join(names)}")
         print()
         print("Template List:")
         for tid, (plugin, name) in sorted(cls.TEMPLATES.items()):
-            print(f"  {tid:3d}: {plugin}/{name}")
+            marker = " [excluded]" if tid in excluded else ""
+            print(f"  {tid:3d}: {plugin}/{name}{marker}")
 
 
 # Convenience functions for external use

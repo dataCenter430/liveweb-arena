@@ -577,6 +577,9 @@ class Actor:
                 )
                 answer_validations.extend(llm_validations)
 
+            # Sort by answer_tag for consistent ordering
+            answer_validations.sort(key=lambda v: v.get("answer_tag", ""))
+
             # Calculate overall score
             # Hard failures (system issues) always get 0 — evaluation is invalid
             # Soft failures (max_steps, parse_failed) use computed scores if available

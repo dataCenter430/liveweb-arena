@@ -177,6 +177,8 @@ class StooqClient(BaseAPIClient):
         except asyncio.TimeoutError:
             logger.warning(f"Stooq timeout for {symbol}")
             return None
+        except StooqRateLimitError:
+            raise
         except Exception as e:
             logger.warning(f"Stooq error for {symbol}: {e}")
             return None

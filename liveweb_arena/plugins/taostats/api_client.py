@@ -1,6 +1,7 @@
 """Taostats API client using TaoMarketCap Internal API (no rate limiting, no API key)"""
 
 import asyncio
+import contextvars
 from typing import Any, Dict, List, Optional
 import aiohttp
 
@@ -202,22 +203,24 @@ async def fetch_homepage_api_data() -> Dict[str, Any]:
 # Helper functions for templates
 # ============================================================
 
-_subnet_cache: Optional[Dict[str, Any]] = None
+_subnet_cache: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar(
+    "_taostats_subnet_cache", default=None
+)
 
 
 async def _ensure_subnet_cache() -> Dict[str, Any]:
     """Ensure subnet cache is loaded."""
-    global _subnet_cache
-    if _subnet_cache is None:
+    cache = _subnet_cache.get()
+    if cache is None:
         data = await fetch_all_subnets()
-        _subnet_cache = data.get("subnets", {})
-    return _subnet_cache
+        cache = data.get("subnets", {})
+        _subnet_cache.set(cache)
+    return cache
 
 
 def get_cached_subnets() -> Dict[str, Any]:
     """Get cached subnets (sync version for variable generation)."""
-    global _subnet_cache
-    return _subnet_cache or {}
+    return _subnet_cache.get() or {}
 
 
 def _normalize_emission(subnets: Dict[str, Any]) -> Dict[str, Any]:
@@ -264,8 +267,7 @@ def initialize_cache():
     Must be called before generating taostats questions.
     Uses asyncio.run() to call async API.
     """
-    global _subnet_cache
-    if _subnet_cache is not None:
+    if _subnet_cache.get() is not None:
         return  # Already initialized
 
     try:
@@ -288,8 +290,8 @@ def initialize_cache():
         else:
             raise
 
-    _subnet_cache = data.get("subnets", {})
-    if not _subnet_cache:
+    cache = data.get("subnets", {})
+    if not cache:
         raise APIFetchError("API returned no subnet data", source="taostats")
 
-    _subnet_cache = _filter_by_emission(_subnet_cache)
+    _subnet_cache.set(_filter_by_emission(cache))

@@ -289,11 +289,11 @@ class BasePlugin(ABC):
 
         template_name = validation_info.get("template_name") or validation_info.get("_template_name")
         if not template_name:
-            return GroundTruthResult.fail("No template_name in validation_info")
+            return GroundTruthResult.system_error("No template_name in validation_info")
 
         template_cls = get_template(template_name)
         if not template_cls:
-            return GroundTruthResult.fail(f"Template not found: {template_name}")
+            return GroundTruthResult.system_error(f"Template not found: {template_name}")
 
         template = template_cls()
         return await template.get_ground_truth(validation_info)

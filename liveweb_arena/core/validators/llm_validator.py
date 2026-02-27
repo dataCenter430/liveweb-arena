@@ -246,7 +246,7 @@ async def validate_answers_with_llm(
         tasks = [validate_single(subtask) for subtask in subtasks]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Check for any exceptions - re-raise to signal system error
+        # Any validation failure = evaluation invalid (can't score reliably)
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 subtask = subtasks[i]

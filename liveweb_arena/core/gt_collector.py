@@ -96,6 +96,13 @@ class GTCollector:
         # Page content (accessibility tree) from visits {url: content}
         self._page_contents: Dict[str, str] = {}
 
+        # Observation errors during GT collection
+        self._observation_errors: List[str] = []
+
+    def record_observation_error(self, url: str, error: str):
+        """Record an error that occurred during observation callback."""
+        self._observation_errors.append(f"{url}: {error}")
+
     def _get_source_type(self, subtask: "SubTask") -> GTSourceType:
         """Get GT source type for a subtask."""
         if self._task_manager is None:

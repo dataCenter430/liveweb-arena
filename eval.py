@@ -270,8 +270,10 @@ async def main():
             timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
             output_path = eval_dir / f"{timestamp}.json"
 
-        with open(output_path, "w", encoding="utf-8") as f:
+        tmp_path = output_path.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
+        tmp_path.rename(output_path)
         print(f"\nResults saved to: {output_path}")
 
         return 0 if result["success"] else 1

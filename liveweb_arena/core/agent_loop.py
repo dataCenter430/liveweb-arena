@@ -171,6 +171,11 @@ class AgentLoop:
                     raise
                 except Exception as e:
                     log("Agent", f"Observation callback error: {e}")
+                    # Record GT collection failure so it's visible in results
+                    from .gt_collector import get_current_gt_collector
+                    gt = get_current_gt_collector()
+                    if gt:
+                        gt.record_observation_error(obs.url, str(e))
 
             # Pre-save observation so it's not lost if LLM call times out
             current_obs = obs

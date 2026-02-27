@@ -95,14 +95,16 @@ class CoinGeckoClient(BaseAPIClient):
                             timeout=aiohttp.ClientTimeout(total=timeout),
                         ) as retry_response:
                             if retry_response.status != 200:
-                                return None
+                                raise APIFetchError(f"CoinGecko retry failed: {retry_response.status}")
                             return await retry_response.json()
 
                     if response.status != 200:
-                        return None
+                        raise APIFetchError(f"CoinGecko API error: {response.status}")
                     return await response.json()
-        except Exception:
-            return None
+        except APIFetchError:
+            raise
+        except Exception as e:
+            raise APIFetchError(f"CoinGecko request failed: {e}") from e
 
     @classmethod
     async def get_coin_market_data(
@@ -197,8 +199,7 @@ async def fetch_cache_api_data() -> Optional[Dict[str, Any]]:
         return result
 
     except Exception as e:
-        logger.error(f"CoinGecko fetch failed: {e}")
-        return {"_meta": {"source": CACHE_SOURCE, "coin_count": 0}, "coins": {}}
+        raise APIFetchError(f"CoinGecko fetch failed: {e}") from e
 
 
 async def fetch_homepage_api_data() -> Dict[str, Any]:
@@ -217,7 +218,7 @@ async def fetch_homepage_api_data() -> Dict[str, Any]:
     data = await fetch_cache_api_data()
     if data and data.get("coins"):
         return {"coins": data["coins"]}
-    return {"coins": {}}
+    raise APIFetchError("CoinGecko homepage returned no coin data")
 
 
 async def fetch_single_coin_data(coin_id: str) -> Dict[str, Any]:
