@@ -462,7 +462,11 @@ class CacheManager:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"],
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                ],
             )
             try:
                 context = await browser.new_context(
@@ -508,6 +512,16 @@ class CacheManager:
                 await page.wait_for_timeout(500)
 
                 html = await page.content()
+
+                # Detect CAPTCHA/challenge pages
+                from liveweb_arena.core.block_patterns import is_captcha_page
+
+                page_title = await page.title()
+                if is_captcha_page(html, page_title):
+                    raise CacheFatalError(
+                        f"CAPTCHA/challenge page detected (title: {page_title!r})",
+                        url=url,
+                    )
 
                 # Extract accessibility tree for deterministic caching
                 a11y_tree = ""

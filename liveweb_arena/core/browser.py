@@ -708,6 +708,7 @@ class BrowserEngine:
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
+            "--disable-blink-features=AutomationControlled",
         ]
 
     async def start(self):
