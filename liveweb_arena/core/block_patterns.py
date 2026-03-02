@@ -75,6 +75,14 @@ CAPTCHA_SIGNALS = [
     ("cf-browser-verification", "html"),
     ("cf_chl_opt", "html"),
     ("/cdn-cgi/challenge-platform/", "html"),
+    # DataDome
+    ("captcha-delivery.com", "html"),
+    ("geo.captcha-delivery.com", "html"),
+    # PerimeterX / HUMAN Security
+    ("perimeterx.net/", "html"),
+    ("human.com/bot", "html"),
+    # Akamai Bot Manager
+    ("ak-challenge", "html"),
     # Generic
     ("Access denied", "title"),
     ("Please verify you are a human", "html"),

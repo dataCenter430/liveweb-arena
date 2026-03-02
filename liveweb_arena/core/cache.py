@@ -32,8 +32,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Default TTL: 24 hours
-DEFAULT_TTL = 24 * 3600
+# Default TTL: 48 hours
+DEFAULT_TTL = 48 * 3600
 
 
 class CacheFatalError(Exception):
@@ -486,7 +486,14 @@ class CacheManager:
 
                 await page.route("**/*", _block_tracking)
 
-                await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+                response = await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+
+                # Layer 1: HTTP status check
+                if response and response.status >= 400:
+                    raise CacheFatalError(
+                        f"HTTP {response.status} for {url}",
+                        url=url,
+                    )
 
                 # Wait for network idle (short timeout: ads are blocked, so
                 # legitimate content loads in ~3-4s; streaming endpoints like
@@ -516,10 +523,18 @@ class CacheManager:
                 # Detect CAPTCHA/challenge pages
                 from liveweb_arena.core.block_patterns import is_captcha_page
 
+                # Layer 2: CAPTCHA/challenge detection
                 page_title = await page.title()
                 if is_captcha_page(html, page_title):
                     raise CacheFatalError(
                         f"CAPTCHA/challenge page detected (title: {page_title!r})",
+                        url=url,
+                    )
+
+                # Layer 3: Minimum content length (real pages are >5KB)
+                if len(html) < 1000:
+                    raise CacheFatalError(
+                        f"Page too short ({len(html)} bytes, title: {page_title!r})",
                         url=url,
                     )
 

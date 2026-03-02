@@ -26,6 +26,23 @@ logger = logging.getLogger(__name__)
 # so that route.abort() reaches the browser BEFORE page.goto() times out.
 PREFETCH_TIMEOUT = 25
 
+# 1x1 transparent GIF (43 bytes)
+_TRANSPARENT_GIF = (
+    b"\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00"
+    b"\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21"
+    b"\xf9\x04\x00\x00\x00\x00\x00\x2c\x00\x00"
+    b"\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44"
+    b"\x01\x00\x3b"
+)
+
+# Offline stubs: fulfill with empty content instead of abort to avoid JS error/retry
+_OFFLINE_STUBS = {
+    "stylesheet": ("text/css", ""),
+    "script": ("application/javascript", ""),
+    "image": ("image/gif", _TRANSPARENT_GIF),
+    "font": ("font/woff2", b""),
+}
+
 
 def log(tag: str, message: str):
     """Simple logging helper."""
@@ -41,6 +58,8 @@ class InterceptorStats:
     passed: int = 0
     errors: int = 0
     miss_urls: List[str] = field(default_factory=list)
+    blocked_urls: Set[str] = field(default_factory=set)
+    passed_urls: Set[str] = field(default_factory=set)
 
     def to_dict(self) -> dict:
         total = self.hits + self.misses + self.blocked + self.passed
@@ -53,6 +72,8 @@ class InterceptorStats:
             "total": total,
             "hit_rate": self.hits / max(1, self.hits + self.misses),
             "miss_urls": self.miss_urls[:10],
+            "blocked_urls": sorted(self.blocked_urls),
+            "passed_urls": sorted(self.passed_urls),
         }
 
 
@@ -93,6 +114,7 @@ class CacheInterceptor:
         cache_manager: Optional[CacheManager] = None,
         url_validator: Optional[callable] = None,
         plugin_resolver: Optional[Any] = None,
+        offline: bool = False,
     ):
         """
         Initialize interceptor.
@@ -107,12 +129,15 @@ class CacheInterceptor:
                           Called when domain is not in allowed_domains.
             plugin_resolver: Optional callback (url: str) -> Optional[BasePlugin].
                             Resolves URL to plugin for pre-fetch caching.
+            offline: If True, block all non-document requests (static, XHR, etc).
+                    Used in cache mode where agent relies on cached accessibility trees.
         """
         self.cached_pages = cached_pages
         self.allowed_domains = allowed_domains
         self.cache_manager = cache_manager
         self.url_validator = url_validator
         self.plugin_resolver = plugin_resolver
+        self.offline = offline
         self.stats = InterceptorStats()
         self._pending_error: Optional[Exception] = None
         # Per-evaluation storage for cached accessibility trees
@@ -152,6 +177,7 @@ class CacheInterceptor:
             # Block tracking/analytics
             if self._should_block(url):
                 self.stats.blocked += 1
+                self.stats.blocked_urls.add(url)
                 # For document navigations (click-initiated), abort produces
                 # chrome-error:// which the AI sees as a network error.
                 # Use fulfill with HTML instead so the browser stays healthy.
@@ -266,32 +292,48 @@ class CacheInterceptor:
 
         # Fallback: LIVE mode or URL without plugin → pass through to network
         self.stats.passed += 1
+        self.stats.passed_urls.add(url)
         await route.continue_()
 
     async def _handle_static(self, route: Route, url: str):
         """Handle static resource requests."""
-        # Always allow static resources through
+        if self.offline:
+            stub = _OFFLINE_STUBS.get(route.request.resource_type)
+            if stub:
+                content_type, body = stub
+                self.stats.blocked += 1
+                self.stats.blocked_urls.add(url)
+                await route.fulfill(status=200, headers={"content-type": content_type}, body=body)
+            else:
+                self.stats.blocked += 1
+                self.stats.blocked_urls.add(url)
+                await route.abort("blockedbyclient")
+            return
         self.stats.passed += 1
+        self.stats.passed_urls.add(url)
         await route.continue_()
 
     async def _handle_xhr(self, route: Route, url: str):
         """Handle XHR/fetch requests."""
-        # Check domain whitelist
-        if self._is_domain_allowed(url):
-            self.stats.passed += 1
-            await route.continue_()
-        else:
+        if self.offline or not self._is_domain_allowed(url):
             self.stats.blocked += 1
+            self.stats.blocked_urls.add(url)
             await route.abort("blockedbyclient")
+            return
+        self.stats.passed += 1
+        self.stats.passed_urls.add(url)
+        await route.continue_()
 
     async def _handle_other(self, route: Route, url: str):
         """Handle other request types."""
-        if self._is_domain_allowed(url):
-            self.stats.passed += 1
-            await route.continue_()
-        else:
+        if self.offline or not self._is_domain_allowed(url):
             self.stats.blocked += 1
+            self.stats.blocked_urls.add(url)
             await route.abort("blockedbyclient")
+            return
+        self.stats.passed += 1
+        self.stats.passed_urls.add(url)
+        await route.continue_()
 
     def _find_cached_page(self, url: str) -> Optional[CachedPage]:
         """Find cached page for URL.

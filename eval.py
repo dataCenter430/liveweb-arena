@@ -26,8 +26,10 @@ import json
 import logging
 import os
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -254,6 +256,18 @@ async def main():
             print(f"Misses: {cache_stats.get('misses', 0)}")
             print(f"Blocked: {cache_stats.get('blocked', 0)}")
 
+            # Domain-aggregated URL summaries
+            for label, key in [("Passed", "passed_urls"), ("Blocked", "blocked_urls")]:
+                urls = cache_stats.get(key, [])
+                if not urls:
+                    continue
+                domain_counts = Counter(
+                    urlparse(u).netloc for u in urls
+                )
+                print(f"\n--- {label} URLs ({len(urls)} unique) ---")
+                for domain, count in domain_counts.most_common():
+                    print(f"  {domain}: {count}")
+
         # Save to file
         if args.output:
             output_path = Path(args.output)
@@ -288,4 +302,6 @@ async def main():
 
 if __name__ == "__main__":
     exit_code = asyncio.run(main())
+    sys.stdout.flush()
+    sys.stderr.flush()
     os._exit(exit_code)

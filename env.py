@@ -234,6 +234,7 @@ class Actor:
             cache_manager=self.cache_manager if self.use_cache else None,
             url_validator=url_validator,
             plugin_resolver=plugin_resolver,
+            offline=self.use_cache,
         )
         if self.use_cache:
             await session.set_cache_interceptor(interceptor)
