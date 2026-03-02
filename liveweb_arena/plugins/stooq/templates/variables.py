@@ -64,7 +64,7 @@ class CurrencySpec:
 @dataclass
 class CommoditySpec:
     """Specification for a commodity"""
-    symbol: str  # e.g., "gc.f"
+    symbol: str  # e.g., "gc.c"
     display_name: str  # e.g., "Gold"
     category: str  # e.g., "metals", "energy"
 
@@ -127,14 +127,14 @@ CURRENCIES = [
 
 # Major commodities
 COMMODITIES = [
-    CommoditySpec("gc.f", "Gold Futures", "metals"),
-    CommoditySpec("si.f", "Silver Futures", "metals"),
-    CommoditySpec("hg.f", "Copper", "metals"),
-    CommoditySpec("cl.f", "Crude Oil (WTI)", "energy"),
-    CommoditySpec("ng.f", "Natural Gas", "energy"),
-    CommoditySpec("zc.f", "Corn", "agriculture"),
-    CommoditySpec("zw.f", "Wheat", "agriculture"),
-    CommoditySpec("zs.f", "Soybeans", "agriculture"),
+    CommoditySpec("gc.c", "Gold Futures", "metals"),
+    CommoditySpec("si.c", "Silver Futures", "metals"),
+    CommoditySpec("hg.c", "Copper", "metals"),
+    CommoditySpec("cl.c", "Crude Oil (WTI)", "energy"),
+    CommoditySpec("ng.c", "Natural Gas", "energy"),
+    CommoditySpec("zc.c", "Corn", "agriculture"),
+    CommoditySpec("zw.c", "Wheat", "agriculture"),
+    CommoditySpec("zs.c", "Soybeans", "agriculture"),
     # Spot prices (used by hybrid templates)
     CommoditySpec("xauusd", "Gold", "metals"),
     CommoditySpec("xagusd", "Silver", "metals"),

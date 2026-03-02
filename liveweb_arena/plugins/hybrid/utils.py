@@ -98,16 +98,15 @@ async def get_crypto_24h_change(coin_id: str) -> float:
                 f"'price_change_percentage_24h' is missing. Data keys: {list(coin_data.keys())}"
             )
 
-        # In cache mode, all data should be collected - if not found, it's an error
-        if api_data:
-            coingecko_keys = _filter_coingecko_keys(list(api_data.keys()))
-            raise RuntimeError(
-                f"Agent did not visit CoinGecko page for '{coin_id}'. "
-                f"Required URL: https://www.coingecko.com/en/coins/{coin_id} | "
-                f"Visited CoinGecko: {coingecko_keys[:5] if coingecko_keys else '(none)'}"
-            )
+        # Data not found in collected pool - always fail when gt_collector exists
+        coingecko_keys = _filter_coingecko_keys(list(api_data.keys()))
+        raise RuntimeError(
+            f"Agent did not visit CoinGecko page for '{coin_id}'. "
+            f"Required URL: https://www.coingecko.com/en/coins/{coin_id} | "
+            f"Visited CoinGecko: {coingecko_keys[:5] if coingecko_keys else '(none)'}"
+        )
 
-    # Live mode: no collected data yet, fetch directly from API
+    # Live mode: no gt_collector (standalone usage only), fetch directly from API
     log("GT", f"Live fetch: {coin_id}")
 
     async def fetch():
@@ -160,15 +159,14 @@ async def get_stooq_price(symbol: str) -> float:
                 f"Data keys: {list(asset_data.keys())}"
             )
 
-        if api_data:
-            stooq_keys = _filter_stooq_keys(list(api_data.keys()))
-            raise RuntimeError(
-                f"Agent did not visit Stooq page for '{symbol}'. "
-                f"Required URL: https://stooq.com/q/?s={symbol} | "
-                f"Visited Stooq: {stooq_keys[:5] if stooq_keys else '(none)'}"
-            )
+        stooq_keys = _filter_stooq_keys(list(api_data.keys()))
+        raise RuntimeError(
+            f"Agent did not visit Stooq page for '{symbol}'. "
+            f"Required URL: https://stooq.com/q/?s={symbol} | "
+            f"Visited Stooq: {stooq_keys[:5] if stooq_keys else '(none)'}"
+        )
 
-    # Live mode: fetch directly from API
+    # Live mode: no gt_collector (standalone usage only), fetch directly from API
     log("GT", f"Live fetch: {symbol}")
 
     async def fetch():
@@ -229,15 +227,14 @@ async def get_stooq_24h_change(symbol: str) -> float:
                 f"'daily_change_pct' is missing. Data keys: {list(asset_data.keys())}"
             )
 
-        if api_data:
-            stooq_keys = _filter_stooq_keys(list(api_data.keys()))
-            raise RuntimeError(
-                f"Agent did not visit Stooq page for '{symbol}'. "
-                f"Required URL: https://stooq.com/q/?s={symbol} | "
-                f"Visited Stooq: {stooq_keys[:5] if stooq_keys else '(none)'}"
-            )
+        stooq_keys = _filter_stooq_keys(list(api_data.keys()))
+        raise RuntimeError(
+            f"Agent did not visit Stooq page for '{symbol}'. "
+            f"Required URL: https://stooq.com/q/?s={symbol} | "
+            f"Visited Stooq: {stooq_keys[:5] if stooq_keys else '(none)'}"
+        )
 
-    # Live mode: fetch directly from API
+    # Live mode: no gt_collector (standalone usage only), fetch directly from API
     log("GT", f"Live fetch: {symbol}")
 
     async def fetch():

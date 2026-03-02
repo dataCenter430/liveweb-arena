@@ -1,14 +1,47 @@
-"""Shared URL blocking and CAPTCHA detection patterns.
+"""Shared browser anti-detection, URL blocking, and CAPTCHA detection.
 
-URL blocking: Used by CacheInterceptor (main browser) and CacheManager._fetch_page
-(prefetch browser) to block tracking/ad requests that delay networkidle.
-
-CAPTCHA detection: Used by _fetch_page to detect Cloudflare challenge pages
-and trigger retry logic instead of caching invalid content.
+Used by both CacheManager._fetch_page (prefetch browser) and CacheInterceptor
+(agent browser) to block tracking requests, detect challenge pages, and
+present a realistic browser fingerprint.
 """
 
 import re
 from typing import List
+
+
+# ---------------------------------------------------------------------------
+# Browser stealth configuration
+# ---------------------------------------------------------------------------
+# Shared between prefetch browser (cache.py) and agent browser (browser.py).
+
+STEALTH_BROWSER_ARGS = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-blink-features=AutomationControlled",
+]
+
+STEALTH_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+
+# Patches navigator properties that headless Chrome exposes.
+# Must be injected via page.add_init_script() BEFORE page.goto().
+STEALTH_INIT_SCRIPT = """
+    Object.defineProperty(navigator, 'plugins', {
+        get: () => [1, 2, 3, 4, 5],
+    });
+    Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en'],
+    });
+    window.chrome = { runtime: {}, };
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) =>
+        parameters.name === 'notifications'
+            ? Promise.resolve({ state: Notification.permission })
+            : originalQuery(parameters);
+"""
 
 TRACKING_BLOCK_PATTERNS: List[str] = [
     # Google
@@ -48,8 +81,6 @@ TRACKING_BLOCK_PATTERNS: List[str] = [
     r"syncframe",
     r"user_sync",
     r"checksync",
-    # Site-specific ads
-    r"stooq\.com/ads/",
 ]
 
 _BLOCK_RE = re.compile("|".join(TRACKING_BLOCK_PATTERNS), re.IGNORECASE)

@@ -383,6 +383,8 @@ class CacheInterceptor:
                 page = self.cache_manager.get_cached(try_url)
                 if page and not page.is_expired(self.cache_manager.ttl) and page.is_complete():
                     self._url_map[normalized] = page
+                    # Also add to shared cached_pages so GT collector can access api_data
+                    self.cached_pages[normalized] = page
                     return page
 
         return None

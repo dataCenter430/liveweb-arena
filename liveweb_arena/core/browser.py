@@ -4,6 +4,7 @@ import asyncio
 from typing import Optional, TYPE_CHECKING
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
 
+from .block_patterns import STEALTH_BROWSER_ARGS, STEALTH_USER_AGENT
 from .models import BrowserObservation, BrowserAction
 
 if TYPE_CHECKING:
@@ -704,11 +705,9 @@ class BrowserEngine:
         self._browser: Optional[Browser] = None
         self._lock = asyncio.Lock()
         self._browser_args = [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
+            *STEALTH_BROWSER_ARGS,
             "--disable-dev-shm-usage",
             "--disable-gpu",
-            "--disable-blink-features=AutomationControlled",
         ]
 
     async def start(self):
@@ -736,7 +735,7 @@ class BrowserEngine:
         # Prepare context options
         context_options = {
             "viewport": {"width": 1280, "height": 720},
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "user_agent": STEALTH_USER_AGENT,
             "ignore_https_errors": False,
             "java_script_enabled": True,
             "bypass_csp": False,

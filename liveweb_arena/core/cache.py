@@ -173,9 +173,9 @@ def normalize_url(url: str) -> str:
     1. Lowercase domain
     2. Remove default ports
     3. Remove tracking parameters
-    4. Sort remaining query parameters
-    5. Lowercase query parameter values (for case-insensitive matching)
-    6. Normalize URL encoding (decode %XX, normalize + to space)
+    4. Decode percent-encoding in path and query values
+    5. Lowercase query keys and values
+    6. Sort remaining query parameters
     """
     parsed = urlparse(url)
 
@@ -189,19 +189,19 @@ def normalize_url(url: str) -> str:
     # Path: decode percent-encoding, normalize spaces to +
     path = unquote(parsed.path or '/').replace(' ', '+')
 
-    # Filter, sort, and lowercase query parameters
+    # Filter, sort, and normalize query parameters
     if parsed.query:
         params = []
         tracking = {'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'ref', 'source'}
         for part in parsed.query.split('&'):
             if '=' in part:
-                key = part.split('=')[0].lower()
+                key = unquote(part.split('=')[0]).lower()
                 if key not in tracking:
-                    # Lowercase key only, preserve value case
-                    value = part.split('=', 1)[1]
+                    # Decode percent-encoding and lowercase for consistent matching
+                    value = unquote(part.split('=', 1)[1]).lower()
                     params.append(f"{key}={value}")
             else:
-                params.append(part.lower())
+                params.append(unquote(part).lower())
         query = '&'.join(sorted(params))
     else:
         query = ''
@@ -237,9 +237,9 @@ def url_to_cache_dir(cache_dir: Path, url: str) -> Path:
     else:
         path_parts = ['_root_']
 
-    # Query parameters (lowercase for case-insensitive matching)
+    # Query parameters (decode percent-encoding + lowercase for consistent matching)
     if parsed.query:
-        query_part = '__' + safe_path_component(parsed.query.lower())
+        query_part = '__' + safe_path_component(unquote(parsed.query).lower())
         path_parts[-1] = path_parts[-1] + query_part
 
     return cache_dir / domain / '/'.join(path_parts)
@@ -458,31 +458,42 @@ class CacheManager:
             (html, accessibility_tree) tuple
         """
         from playwright.async_api import async_playwright
+        from liveweb_arena.core.block_patterns import (
+            STEALTH_BROWSER_ARGS, STEALTH_INIT_SCRIPT, STEALTH_USER_AGENT,
+            is_captcha_page, should_block_url,
+        )
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-blink-features=AutomationControlled",
-                ],
+                args=STEALTH_BROWSER_ARGS,
             )
             try:
                 context = await browser.new_context(
                     viewport={"width": 1280, "height": 720},
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    user_agent=STEALTH_USER_AGENT,
                 )
                 page = await context.new_page()
+                await page.add_init_script(STEALTH_INIT_SCRIPT)
 
                 # Block tracking/ads to avoid networkidle delays
-                from liveweb_arena.core.block_patterns import should_block_url
+                # Merge global + plugin-specific block patterns
+                plugin_block_res = []
+                if plugin and hasattr(plugin, 'get_blocked_patterns'):
+                    for pat in plugin.get_blocked_patterns():
+                        regex_pat = re.escape(pat).replace(r"\*", ".*")
+                        plugin_block_res.append(re.compile(regex_pat, re.IGNORECASE))
 
                 async def _block_tracking(route):
-                    if should_block_url(route.request.url):
+                    req_url = route.request.url
+                    if should_block_url(req_url):
                         await route.abort("blockedbyclient")
-                    else:
-                        await route.continue_()
+                        return
+                    for pat_re in plugin_block_res:
+                        if pat_re.search(req_url):
+                            await route.abort("blockedbyclient")
+                            return
+                    await route.continue_()
 
                 await page.route("**/*", _block_tracking)
 
@@ -519,9 +530,6 @@ class CacheManager:
                 await page.wait_for_timeout(500)
 
                 html = await page.content()
-
-                # Detect CAPTCHA/challenge pages
-                from liveweb_arena.core.block_patterns import is_captcha_page
 
                 # Layer 2: CAPTCHA/challenge detection
                 page_title = await page.title()

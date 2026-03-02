@@ -20,7 +20,7 @@ class StooqPlugin(BasePlugin):
     - https://stooq.com/ (homepage - all assets)
     - https://stooq.com/q/?s=aapl.us (stocks)
     - https://stooq.com/q/?s=^spx (indices)
-    - https://stooq.com/q/?s=gc.f (commodities)
+    - https://stooq.com/q/?s=gc.c (commodities)
     - https://stooq.com/q/?s=eurusd (forex)
 
     API data includes: open, high, low, close, volume, daily_change_pct, etc.
@@ -34,9 +34,10 @@ class StooqPlugin(BasePlugin):
     ]
 
     def get_blocked_patterns(self) -> List[str]:
-        """Block direct CSV download to force agents to use the website."""
+        """Block direct CSV download and ads."""
         return [
             "*/q/d/l/*",  # CSV download endpoint
+            "*stooq.com/ads/*",  # Ad frames
         ]
 
     async def fetch_api_data(self, url: str) -> Dict[str, Any]:
@@ -102,7 +103,7 @@ class StooqPlugin(BasePlugin):
         Examples:
             https://stooq.com/q/?s=aapl.us -> aapl.us
             https://stooq.com/q/?s=^spx -> ^spx
-            https://stooq.com/q/d/?s=gc.f -> gc.f
+            https://stooq.com/q/d/?s=gc.c -> gc.c
             http://stooq.com/q/s/?e=abbv&t= -> abbv (redirected URL format)
         """
         parsed = urlparse(url)

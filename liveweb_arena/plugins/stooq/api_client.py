@@ -121,7 +121,7 @@ class StooqClient(BaseAPIClient):
         Get price data for a symbol.
 
         Args:
-            symbol: Stooq symbol (e.g., "gc.f", "^spx", "aapl.us")
+            symbol: Stooq symbol (e.g., "gc.c", "^spx", "aapl.us")
             timeout: Request timeout in seconds
 
         Returns:
@@ -272,7 +272,7 @@ async def fetch_homepage_api_data() -> Dict[str, Any]:
     {
         "assets": {
             "aapl.us": {<price_data>},
-            "gc.f": {<price_data>},
+            "gc.c": {<price_data>},
             ...
         }
     }
