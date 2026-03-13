@@ -11,8 +11,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from liveweb_arena.core.browser import BrowserEngine, BrowserSession
 from liveweb_arena.core.task_manager import TaskManager
-from liveweb_arena.core.agent_policy import AgentPolicy
-from liveweb_arena.core.agent_protocol import AgentProtocol, FunctionCallingProtocol
+from liveweb_arena.core.agent_protocol import FunctionCallingProtocol
 from liveweb_arena.core.agent_loop import AgentLoop, BrowserFatalError
 from liveweb_arena.core.parser import AnswerParser
 from liveweb_arena.core.gt_collector import GTCollector, set_current_gt_collector
@@ -129,8 +128,8 @@ class EpisodeState:
     # GT collection state
     gt_collector: GTCollector
 
-    # Agent state (supports both legacy AgentPolicy and new AgentProtocol)
-    policy: Any  # AgentPolicy | AgentProtocol
+    # Agent protocol (function calling)
+    policy: Any  # FunctionCallingProtocol
     system_prompt: str
 
     # Step tracking
@@ -253,7 +252,6 @@ class Actor:
         temperature: float = 0.7,
         max_concurrency: int = 2,
         task_id: Optional[int] = None,
-        protocol: str = "legacy",
     ) -> dict:
         """
         Run a single evaluation.
@@ -315,7 +313,6 @@ class Actor:
                     timeout=timeout,
                     temperature=temperature,
                     task_id=task_id,
-                    protocol=protocol,
                 )
             except Exception as e:
                 import traceback
@@ -336,12 +333,6 @@ class Actor:
         result["time_taken"] = time.time() - start_time
         return result
 
-    def _create_protocol(self, protocol: str):
-        """Create agent protocol by name."""
-        if protocol == "function_calling":
-            return FunctionCallingProtocol()
-        return AgentPolicy()
-
     async def _run_evaluation(
         self,
         model: str,
@@ -354,7 +345,6 @@ class Actor:
         timeout: int,
         temperature: float,
         task_id: Optional[int] = None,
-        protocol: str = "legacy",
     ) -> dict:
         """Internal evaluation logic."""
         await self._ensure_browser()
@@ -424,11 +414,11 @@ class Actor:
                     interceptor, cached_pages, plugins_used, gt_collector, obs, self.use_cache,
                 )
 
-            active_protocol = self._create_protocol(protocol)
+            active_protocol = FunctionCallingProtocol()
             agent_loop = AgentLoop(
                 session=session,
                 llm_client=llm_client,
-                policy=active_protocol,
+                protocol=active_protocol,
                 max_steps=effective_max_steps,
                 on_navigation=on_navigation,
                 on_observation=on_observation,
@@ -664,65 +654,9 @@ class Actor:
         self,
         task,
         trajectory: List,
-        protocol=None,
+        protocol,
     ) -> List[dict]:
-        """Build conversation history from task and trajectory.
-
-        When a protocol with serialize_step() is provided, exports in that
-        protocol's native format (e.g., tool_calls for FunctionCallingProtocol).
-        Otherwise, uses the legacy user/assistant alternating format.
-        """
-        from liveweb_arena.core.agent_protocol import AgentProtocol
-
-        # Use protocol-native serialization if available
-        if protocol and isinstance(protocol, AgentProtocol):
-            return self._build_conversation_protocol(task, trajectory, protocol)
-
-        # Legacy format: alternating user/assistant text messages
-        from liveweb_arena.core.agent_policy import AgentPolicy
-
-        conversation = []
-        policy = AgentPolicy()
-        system_content = policy.build_system_prompt(task)
-
-        conversation.append({
-            "role": "system",
-            "content": system_content,
-            "metadata": {
-                "type": "instructions",
-                "plugins": list(task.plugin_hints.keys()) if task.plugin_hints else [],
-                "num_subtasks": len(task.subtasks),
-            }
-        })
-
-        for step in trajectory:
-            conversation.append({
-                "role": "user",
-                "content": step.prompt,
-                "metadata": {
-                    "type": "environment",
-                    "step": step.step_num,
-                    "url": step.observation.url,
-                }
-            })
-
-            conversation.append({
-                "role": "assistant",
-                "content": step.raw_response,
-                "metadata": {
-                    "type": "agent_action",
-                    "step": step.step_num,
-                    "action_type": step.action.action_type if step.action else None,
-                    "action_result": step.action_result,
-                }
-            })
-
-        return conversation
-
-    def _build_conversation_protocol(
-        self, task, trajectory: List, protocol,
-    ) -> List[dict]:
-        """Build conversation in protocol-native format (e.g., tool_calls)."""
+        """Build conversation history in function calling format (tool_calls/tool messages)."""
         conversation = []
 
         system_content = protocol.build_system_prompt(task)
@@ -847,8 +781,8 @@ class Actor:
                 required_domains=required_domains,
             )
 
-            # Build agent policy and system prompt
-            policy = AgentPolicy()
+            # Build agent protocol and system prompt
+            policy = FunctionCallingProtocol()
             system_prompt = policy.build_system_prompt(task)
 
             # Navigate to about:blank and get initial observation

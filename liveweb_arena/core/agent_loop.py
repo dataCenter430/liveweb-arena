@@ -1,12 +1,11 @@
 """Agent loop for browser-based task execution"""
 
 import asyncio
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple
 
 from .browser import BrowserSession
 from .cache import CacheFatalError
 from .models import BrowserAction, CompositeTask, TrajectoryStep
-from .agent_policy import AgentPolicy
 from .agent_protocol import AgentProtocol
 from ..utils.llm_client import LLMClient, LLMFatalError
 from ..utils.logger import log
@@ -56,10 +55,7 @@ class AgentLoop:
     """
     Main agent loop that drives browser interaction via LLM.
 
-    Supports two interaction protocols:
-    - AgentPolicy (legacy): JSON-in-text format, uses chat()
-    - AgentProtocol with tools: Function calling format, uses chat_with_tools()
-
+    Uses AgentProtocol (function calling) for structured tool_calls interaction.
     The loop maintains trajectory state internally for partial recovery on timeout.
     """
 
@@ -67,7 +63,7 @@ class AgentLoop:
         self,
         session: BrowserSession,
         llm_client: LLMClient,
-        policy: Union[AgentPolicy, AgentProtocol],
+        protocol: AgentProtocol,
         max_steps: int = 30,
         on_navigation: Optional[NavigationCallback] = None,
         on_step_complete: Optional[StepCompleteCallback] = None,
@@ -75,14 +71,11 @@ class AgentLoop:
     ):
         self._session = session
         self._llm_client = llm_client
-        self._policy = policy
+        self._protocol = protocol
         self._max_steps = max_steps
         self._on_navigation = on_navigation
         self._on_step_complete = on_step_complete
         self._on_observation = on_observation
-
-        # Determine if protocol supports function calling
-        self._use_tools = isinstance(policy, AgentProtocol) and policy.get_tools() is not None
 
         # Internal state for partial recovery
         self._trajectory: List[TrajectoryStep] = []
@@ -106,38 +99,26 @@ class AgentLoop:
         temperature: float, seed: Optional[int],
     ) -> Tuple[str, Optional[BrowserAction], Optional[dict]]:
         """
-        Call LLM using the appropriate protocol.
+        Call LLM with function calling protocol.
 
         Returns:
             Tuple of (raw_response, parsed_action_or_None, usage)
         """
-        if self._use_tools:
-            tools = self._policy.get_tools()
-            response = await self._llm_client.chat_with_tools(
-                system=system_prompt,
-                user=user_prompt,
-                model=model,
-                tools=tools,
-                temperature=temperature,
-                seed=seed,
-            )
-            raw_response = response.content
-            if response.has_tool_calls:
-                # Build raw_response for logging: include tool call info
-                tc = response.tool_calls[0]
-                raw_response = raw_response or f"[tool_call: {tc.function['name']}({tc.function['arguments']})]"
-            action = self._policy.parse_response(raw_response, response.tool_calls)
-            return raw_response, action, response.usage
-        else:
-            raw_response, usage = await self._llm_client.chat(
-                system=system_prompt,
-                user=user_prompt,
-                model=model,
-                temperature=temperature,
-                seed=seed,
-            )
-            action = self._policy.parse_response(raw_response)
-            return raw_response, action, usage
+        tools = self._protocol.get_tools()
+        response = await self._llm_client.chat_with_tools(
+            system=system_prompt,
+            user=user_prompt,
+            model=model,
+            tools=tools,
+            temperature=temperature,
+            seed=seed,
+        )
+        raw_response = response.content
+        if response.has_tool_calls:
+            tc = response.tool_calls[0]
+            raw_response = raw_response or f"[tool_call: {tc.function['name']}({tc.function['arguments']})]"
+        action = self._protocol.parse_response(raw_response, response.tool_calls)
+        return raw_response, action, response.usage
 
     async def run(
         self,
@@ -168,9 +149,8 @@ class AgentLoop:
         self._max_steps_reached = False
         self._parse_failed = False
 
-        system_prompt = self._policy.build_system_prompt(task)
-        protocol_name = "function_calling" if self._use_tools else "legacy_text"
-        log("Agent", f"Starting loop, max_steps={self._max_steps}, protocol={protocol_name}")
+        system_prompt = self._protocol.build_system_prompt(task)
+        log("Agent", f"Starting loop, max_steps={self._max_steps}, protocol=function_calling")
 
         obs = await self._session.goto("about:blank")
         consecutive_errors = 0
@@ -227,7 +207,7 @@ class AgentLoop:
             # Pre-save observation so it's not lost if LLM call times out
             current_obs = obs
             step_num = effective_step - 1  # 0-indexed step number for trajectory
-            user_prompt = self._policy.build_step_prompt(
+            user_prompt = self._protocol.build_step_prompt(
                 current_obs, self._trajectory, effective_step, self._max_steps
             )
 
