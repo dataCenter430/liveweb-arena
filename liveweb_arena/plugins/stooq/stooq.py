@@ -5,8 +5,9 @@ Plugin for financial market data from stooq.com.
 """
 
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 
+from liveweb_arena.core.cache import normalize_url as base_normalize_url
 from liveweb_arena.plugins.base import BasePlugin
 from .api_client import fetch_single_asset_data, fetch_homepage_api_data, initialize_cache
 
@@ -27,6 +28,7 @@ class StooqPlugin(BasePlugin):
 
     name = "stooq"
     _known_symbols_cache = None
+    _symbol_alias_cache = None
 
     allowed_domains = [
         "stooq.com",
@@ -83,6 +85,48 @@ class StooqPlugin(BasePlugin):
                         symbols.add(bare)
             StooqPlugin._known_symbols_cache = symbols
         return StooqPlugin._known_symbols_cache
+
+    def _get_symbol_aliases(self) -> Dict[str, str]:
+        """Map bare symbols to their canonical suffixed form.
+
+        E.g. {'aapl': 'aapl.us', 'gc': 'gc.c'}.
+        Symbols that are already canonical (eurusd, ^spx) are not included.
+        """
+        if StooqPlugin._symbol_alias_cache is None:
+            aliases: Dict[str, str] = {}
+            for sym in self._get_known_symbols():
+                if "." in sym and not sym.startswith("^"):
+                    bare = sym.rsplit(".", 1)[0]
+                    # Only add if bare form differs from canonical
+                    if bare != sym:
+                        aliases[bare] = sym
+            StooqPlugin._symbol_alias_cache = aliases
+        return StooqPlugin._symbol_alias_cache
+
+    def normalize_url(self, url: str) -> str:
+        """Normalize Stooq URLs so bare and suffixed symbols share one cache key.
+
+        Agents commonly navigate to ?s=aapl instead of ?s=aapl.us.
+        Both refer to the same asset on Stooq. This method canonicalizes
+        the symbol in the URL so the cache stores a single entry per asset.
+        """
+        parsed = urlparse(url)
+        if "stooq.com" not in parsed.netloc.lower():
+            return base_normalize_url(url)
+
+        qs = parse_qs(parsed.query)
+        symbol = qs.get("s", [""])[0].lower()
+        if not symbol:
+            return base_normalize_url(url)
+
+        canonical = self._get_symbol_aliases().get(symbol)
+        if canonical:
+            # Rebuild URL with canonical symbol
+            qs["s"] = [canonical]
+            new_query = urlencode({k: v[0] for k, v in qs.items()}, quote_via=lambda s, *a, **kw: s)
+            url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{new_query}"
+
+        return base_normalize_url(url)
 
     async def fetch_api_data(self, url: str) -> Dict[str, Any]:
         """

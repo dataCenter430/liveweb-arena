@@ -342,7 +342,8 @@ class CacheManager:
         need_api: bool,
     ) -> CachedPage:
         """Ensure single URL is cached."""
-        normalized = normalize_url(url)
+        # Use plugin-specific normalization (e.g. Stooq: aapl → aapl.us)
+        normalized = plugin.normalize_url(url)
         cache_dir = url_to_cache_dir(self.cache_dir, normalized)
         cache_file = cache_dir / "page.json"
         lock_file = cache_dir / ".lock"

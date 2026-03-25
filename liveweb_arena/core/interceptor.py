@@ -225,8 +225,10 @@ class CacheInterceptor:
         Pre-fetch caching: on MISS, actively fetches via cache_manager and serves
         via route.fulfill(). The main browser never hits the network for plugin URLs.
         """
-        normalized = normalize_url(url)
-        page = self._find_cached_page(url)
+        # Use plugin-specific normalization when possible (e.g. Stooq symbol aliases)
+        plugin = self.plugin_resolver(url) if self.plugin_resolver else None
+        normalized = plugin.normalize_url(url) if plugin else normalize_url(url)
+        page = self._find_cached_page(url, plugin=plugin)
 
         if page:
             self.stats.hits += 1
@@ -285,7 +287,7 @@ class CacheInterceptor:
                     )
                     self.cached_pages.update(pages)
 
-                    cached = pages.get(normalize_url(url))
+                    cached = pages.get(normalized)
                     if cached and cached.html:
                         if cached.accessibility_tree:
                             self._accessibility_trees[normalized] = cached.accessibility_tree
@@ -355,7 +357,7 @@ class CacheInterceptor:
         self.stats.passed_urls.add(url)
         await route.continue_()
 
-    def _find_cached_page(self, url: str) -> Optional[CachedPage]:
+    def _find_cached_page(self, url: str, plugin=None) -> Optional[CachedPage]:
         """Find cached page for URL.
 
         Lookup order:
@@ -366,7 +368,7 @@ class CacheInterceptor:
 
         Only returns pages that are complete (have API data if needed).
         """
-        normalized = normalize_url(url)
+        normalized = plugin.normalize_url(url) if plugin else normalize_url(url)
         parsed = urlparse(normalized)
 
         # 1. Check live cached_pages dict (dynamically updated)
