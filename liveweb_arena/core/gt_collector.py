@@ -310,15 +310,18 @@ class GTCollector:
                 # Homepage: bulk assets - only add new, don't overwrite
                 added = 0
                 for symbol, data in api_data["assets"].items():
-                    if symbol not in self._collected_api_data:
-                        self._collected_api_data[symbol] = data
+                    # Normalize to lowercase — templates use lowercase symbols
+                    key = symbol.lower()
+                    if key not in self._collected_api_data:
+                        self._collected_api_data[key] = data
                         added += 1
                 if added > 0:
                     return f"+{added} assets (total {len(self._collected_api_data)})"
                 return f"0 new (already have {len(api_data['assets'])} assets)"
             elif "symbol" in api_data:
                 # Detail page: always overwrite (more accurate)
-                symbol = api_data["symbol"]
+                # Normalize to lowercase — templates use lowercase symbols
+                symbol = api_data["symbol"].lower()
                 self._collected_api_data[symbol] = api_data
                 return symbol
 

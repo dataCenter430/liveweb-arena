@@ -147,8 +147,13 @@ async def get_stooq_price(symbol: str) -> float:
     gt_collector = get_current_gt_collector()
     if gt_collector is not None:
         api_data = gt_collector.get_collected_api_data()
-        if symbol in api_data:
-            asset_data = api_data[symbol]
+        # Try original, lowercase, and uppercase (API returns uppercase symbols)
+        asset_data = None
+        for sym in [symbol, symbol.lower(), symbol.upper()]:
+            if sym in api_data:
+                asset_data = api_data[sym]
+                break
+        if asset_data is not None:
             price = asset_data.get("close")
             if price is not None:
                 log("GT", f"Collected: {symbol} price={price}")
