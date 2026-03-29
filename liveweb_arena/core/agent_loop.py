@@ -5,6 +5,7 @@ from typing import Any, Callable, List, Optional, Tuple
 
 from .browser import BrowserSession
 from .cache import CacheFatalError
+from .memory_patch import apply_memory_patch
 from .models import BrowserAction, CompositeTask, TrajectoryStep
 from .agent_protocol import AgentProtocol
 from ..utils.llm_client import LLMClient, LLMFatalError
@@ -103,44 +104,10 @@ class AgentLoop:
 
     def _apply_memory_patch(self, patch_text: str) -> str:
         """Apply a simplified diff patch to the working memory document."""
-        if not isinstance(patch_text, str):
-            return "Memory patch ignored: patch must be a string"
-
-        lines = [line.rstrip() for line in patch_text.splitlines() if line.strip()]
-        if not lines or lines[0] != "@@":
-            return "Memory patch ignored: invalid diff header"
-
-        removals: List[str] = []
-        additions: List[str] = []
-        added_chars = 0
-        for line in lines[1:]:
-            if line.startswith("- "):
-                removals.append(line[2:])
-                continue
-            if line.startswith("+ "):
-                added_text = line[2:]
-                if not added_text:
-                    return "Memory patch ignored: empty addition"
-                additions.append(added_text)
-                added_chars += len(added_text)
-                continue
-            return "Memory patch ignored: invalid diff line"
-
-        if added_chars > self.MEMORY_MAX_PATCH_ADD_CHARS:
-            return (
-                "Memory patch ignored: added content exceeds "
-                f"{self.MEMORY_MAX_PATCH_ADD_CHARS} characters"
-            )
-
-        updated_lines = self._working_memory.splitlines()
-        for text in removals:
-            if text not in updated_lines:
-                return "Memory patch ignored: deletion target not found"
-            updated_lines.remove(text)
-
-        updated_lines.extend(additions)
-        self._working_memory = "\n".join(updated_lines)
-        return f"Memory patch applied: -{len(removals)}, +{added_chars} chars"
+        result = apply_memory_patch(self._working_memory, patch_text, self.MEMORY_MAX_PATCH_ADD_CHARS)
+        if result.applied:
+            self._working_memory = result.document
+        return result.message
 
     async def _call_llm(
         self, system_prompt: str, user_prompt: str, model: str,
