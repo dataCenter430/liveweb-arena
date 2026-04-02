@@ -13,12 +13,12 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 from liveweb_arena.core.validators.base import (
-    QuestionTemplate, GeneratedQuestion, ValidationResult, register_template,
+    GeneratedQuestion, ValidationResult, register_template,
 )
-from liveweb_arena.core.ground_truth_trigger import (
-    UrlPatternTrigger, TriggerConfig, GroundTruthResult
-)
-from liveweb_arena.core.gt_collector import GTSourceType, get_current_gt_collector
+from liveweb_arena.core.ground_truth_trigger import GroundTruthResult
+
+from .base import HackerNewsTemplateBase
+from .common import extract_first_number, get_homepage_stories
 
 
 class MetricType(Enum):
@@ -43,7 +43,7 @@ class ComparisonType(Enum):
 
 
 @register_template("hackernews_extrema_comparison")
-class HackerNewsExtremaComparisonTemplate(QuestionTemplate):
+class HackerNewsExtremaComparisonTemplate(HackerNewsTemplateBase):
     """
     Template for extrema comparison queries on HN stories.
 
@@ -55,8 +55,6 @@ class HackerNewsExtremaComparisonTemplate(QuestionTemplate):
     - Memory required: Must track running max/min across visits
     - Computation: Must calculate difference or ratio at the end
     """
-
-    GT_SOURCE = GTSourceType.PAGE_ONLY
 
     # Number of top stories to analyze
     STORY_COUNTS = [5, 7, 10]
@@ -147,51 +145,23 @@ class HackerNewsExtremaComparisonTemplate(QuestionTemplate):
         comparison = validation_info.get("comparison", "difference")
         n = validation_info.get("story_count", 5)
 
-        gt_collector = get_current_gt_collector()
-        if gt_collector is None:
-            return GroundTruthResult.system_error("No GT collector")
-
-        collected = gt_collector.get_collected_api_data()
-        if not collected:
-            return GroundTruthResult.fail("No HN data collected")
-
-        # Get stories with rank and the required metric field
-        stories = []
-        for story_id, data in collected.items():
-            if not isinstance(data, dict):
-                continue
-            if story_id.startswith("user:") or story_id.startswith("hn_category:"):
-                continue
-            if story_id.startswith("external:") or story_id.startswith("hn_external:"):
-                continue
-
-            rank = data.get("rank")
-            if rank is None or rank > n:
-                continue
-
-            value = data.get(metric_field)
-            if value is None:
-                continue
-
-            stories.append({
-                "rank": rank,
-                "value": int(value),
-            })
-
-        if len(stories) < n:
-            available_ranks = sorted([s["rank"] for s in stories])
-            return GroundTruthResult.not_collected(
-                f"Only {len(stories)} stories have {metric_field} data (need {n}). "
-                f"Available ranks: {available_ranks}. "
-                f"Agent may need to visit more story detail pages."
-            )
-
-        # Sort by rank and take top n
-        stories.sort(key=lambda x: x["rank"])
-        stories = stories[:n]
+        stories, failure = get_homepage_stories(
+            story_count=n,
+            required_fields=("rank", metric_field),
+        )
+        if failure is not None:
+            return failure
 
         # Find min and max
-        values = [s["value"] for s in stories]
+        values = []
+        for story in stories:
+            try:
+                values.append(int(story[metric_field]))
+            except (TypeError, ValueError):
+                rank = story.get("rank", "?")
+                return GroundTruthResult.system_error(
+                    f"Invalid numeric value for {metric_field} at rank {rank}"
+                )
         max_val = max(values)
         min_val = min(values)
 
@@ -245,9 +215,8 @@ class HackerNewsExtremaComparisonTemplate(QuestionTemplate):
         expected_value = float(expected_str)
 
         # Extract number from answer
-        import re
-        numbers = re.findall(r'[\d.]+', answer)
-        if not numbers:
+        actual_num = extract_first_number(answer, signed=False, allow_float=True)
+        if actual_num is None:
             return ValidationResult(
                 score=0.0,
                 is_correct=False,
@@ -256,16 +225,7 @@ class HackerNewsExtremaComparisonTemplate(QuestionTemplate):
                 details="No number found in answer",
             )
 
-        try:
-            actual_value = float(numbers[0])
-        except ValueError:
-            return ValidationResult(
-                score=0.0,
-                is_correct=False,
-                expected=expected_str,
-                actual=answer,
-                details="Could not parse number from answer",
-            )
+        actual_value = float(actual_num)
 
         # Calculate tolerance based on comparison type
         if comparison == "difference":
@@ -319,16 +279,3 @@ class HackerNewsExtremaComparisonTemplate(QuestionTemplate):
             actual=answer,
             details=f"Outside tolerance: expected {expected_value}, got {actual_value}",
         )
-
-    def get_ground_truth_trigger(self, validation_info: dict) -> TriggerConfig:
-        """Trigger on HN domain visits."""
-        trigger = UrlPatternTrigger(domains=["news.ycombinator.com"])
-        return TriggerConfig(trigger=trigger)
-
-    @classmethod
-    def get_cache_source(cls) -> str:
-        return "hackernews"
-
-    def get_gt_source(self) -> GTSourceType:
-        return self.GT_SOURCE
-

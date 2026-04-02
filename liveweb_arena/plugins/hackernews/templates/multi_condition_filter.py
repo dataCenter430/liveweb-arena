@@ -13,12 +13,12 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 from liveweb_arena.core.validators.base import (
-    QuestionTemplate, GeneratedQuestion, ValidationResult, register_template,
+    GeneratedQuestion, ValidationResult, register_template,
 )
-from liveweb_arena.core.ground_truth_trigger import (
-    UrlPatternTrigger, TriggerConfig, GroundTruthResult
-)
-from liveweb_arena.core.gt_collector import GTSourceType, get_current_gt_collector
+from liveweb_arena.core.ground_truth_trigger import GroundTruthResult
+
+from .base import HackerNewsTemplateBase
+from .common import extract_first_number, get_homepage_stories
 
 
 class ConditionType(Enum):
@@ -64,7 +64,7 @@ THRESHOLDS = {
 
 
 @register_template("hackernews_multi_condition_filter")
-class HackerNewsMultiConditionFilterTemplate(QuestionTemplate):
+class HackerNewsMultiConditionFilterTemplate(HackerNewsTemplateBase):
     """
     Template for multi-condition count queries on HN stories.
 
@@ -77,8 +77,6 @@ class HackerNewsMultiConditionFilterTemplate(QuestionTemplate):
     - Strategy optimization: Can skip obviously non-matching stories
     - Uncertainty: Cannot predict answer without full scan
     """
-
-    GT_SOURCE = GTSourceType.PAGE_ONLY
 
     # Number of top stories to check (subset of front page)
     STORY_COUNTS = [10, 15, 20]
@@ -168,59 +166,24 @@ class HackerNewsMultiConditionFilterTemplate(QuestionTemplate):
         t1 = validation_info.get("threshold1", 0)
         t2 = validation_info.get("threshold2", 0)
 
-        gt_collector = get_current_gt_collector()
-        if gt_collector is None:
-            return GroundTruthResult.system_error("No GT collector")
-
-        collected = gt_collector.get_collected_api_data()
-        if not collected:
-            return GroundTruthResult.fail("No HN data collected")
-
-        # Get stories with rank and required fields
-        stories = []
-        for story_id, data in collected.items():
-            # Skip non-story entries
-            if not isinstance(data, dict):
-                continue
-            if story_id.startswith("user:") or story_id.startswith("hn_category:"):
-                continue
-            if story_id.startswith("external:") or story_id.startswith("hn_external:"):
-                continue
-
-            rank = data.get("rank")
-            if rank is None or rank > n:
-                continue
-
-            score = data.get("score")
-            descendants = data.get("descendants")
-
-            # Both fields required for evaluation
-            if score is None or descendants is None:
-                continue
-
-            stories.append({
-                "rank": rank,
-                "score": score,
-                "comments": descendants,
-            })
-
-        if len(stories) < n:
-            available_ranks = sorted([s["rank"] for s in stories])
-            return GroundTruthResult.not_collected(
-                f"Only {len(stories)} stories have complete data (need {n}). "
-                f"Available ranks: {available_ranks}. "
-                f"Agent may need to visit more story detail pages."
-            )
-
-        # Sort by rank and take top n
-        stories.sort(key=lambda x: x["rank"])
-        stories = stories[:n]
+        stories, failure = get_homepage_stories(
+            story_count=n,
+            required_fields=("rank", "score", "descendants"),
+        )
+        if failure is not None:
+            return failure
 
         # Count matching stories
         count = 0
         for story in stories:
-            score = story["score"]
-            comments = story["comments"]
+            try:
+                score = float(story["score"])
+                comments = float(story["descendants"])
+            except (TypeError, ValueError):
+                rank = story.get("rank", "?")
+                return GroundTruthResult.system_error(
+                    f"Invalid numeric fields for story rank {rank}"
+                )
 
             match = False
             if condition_type == "high_comments_low_score":
@@ -254,9 +217,8 @@ class HackerNewsMultiConditionFilterTemplate(QuestionTemplate):
 
         expected_count = int(result.value)
 
-        import re
-        numbers = re.findall(r'\d+', answer)
-        if not numbers:
+        actual_num = extract_first_number(answer, signed=False, allow_float=False)
+        if actual_num is None:
             return ValidationResult(
                 score=0.0,
                 is_correct=False,
@@ -265,7 +227,7 @@ class HackerNewsMultiConditionFilterTemplate(QuestionTemplate):
                 details="No number found in answer",
             )
 
-        actual_count = int(numbers[0])
+        actual_count = int(actual_num)
 
         if actual_count == expected_count:
             return ValidationResult(
@@ -291,16 +253,3 @@ class HackerNewsMultiConditionFilterTemplate(QuestionTemplate):
             actual=answer,
             details=f"Wrong count: expected {expected_count}, got {actual_count}",
         )
-
-    def get_ground_truth_trigger(self, validation_info: dict) -> TriggerConfig:
-        """Trigger on HN domain visits."""
-        trigger = UrlPatternTrigger(domains=["news.ycombinator.com"])
-        return TriggerConfig(trigger=trigger)
-
-    @classmethod
-    def get_cache_source(cls) -> str:
-        return "hackernews"
-
-    def get_gt_source(self) -> GTSourceType:
-        return self.GT_SOURCE
-

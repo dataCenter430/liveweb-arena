@@ -19,16 +19,18 @@ import random
 from typing import Any, Dict, Optional
 
 from liveweb_arena.core.validators.base import (
-    QuestionTemplate, GeneratedQuestion, ValidationResult, register_template,
+    GeneratedQuestion, ValidationResult, register_template,
 )
 from liveweb_arena.core.ground_truth_trigger import (
-    UrlPatternTrigger, TriggerConfig, GroundTruthResult
+    GroundTruthResult
 )
-from liveweb_arena.core.gt_collector import GTSourceType, get_current_gt_collector
+
+from .base import HackerNewsTemplateBase
+from .common import get_homepage_stories, title_partial_match
 
 
 @register_template("hackernews_news_summary")
-class HackerNewsNewsSummaryTemplate(QuestionTemplate):
+class HackerNewsNewsSummaryTemplate(HackerNewsTemplateBase):
     """
     HN news summary template - tests information extraction + summarization.
 
@@ -41,8 +43,6 @@ class HackerNewsNewsSummaryTemplate(QuestionTemplate):
     - Gradual scoring based on coverage and accuracy
     - No single correct answer format
     """
-
-    GT_SOURCE = GTSourceType.PAGE_ONLY
 
     # Story count options (varied for training diversity)
     STORY_COUNTS = [3, 5, 7, 10]
@@ -157,56 +157,24 @@ Calculate weighted total. Output JSON: {{"score": <0.0-1.0>, "reasoning": "<brie
         n = validation_info.get("story_count", 5)
         summary_type = validation_info.get("summary_type", "brief")
 
-        gt_collector = get_current_gt_collector()
-        if gt_collector is None:
-            return GroundTruthResult.system_error("No GT collector available")
+        stories_raw, failure = get_homepage_stories(
+            story_count=n,
+            required_fields=("rank", "title", "score", "descendants"),
+        )
+        if failure is not None:
+            return failure
 
-        collected = gt_collector.get_collected_api_data()
-        if not collected:
-            return GroundTruthResult.not_collected(
-                "No HN data collected. Agent needs to visit HN homepage."
-            )
-
-        # Extract story data
-        stories = []
-        for key, data in collected.items():
-            # Skip non-story entries
-            if not isinstance(data, dict):
-                continue
-            if key.startswith(("user:", "hn_category:", "external:", "hn_external:")):
-                continue
-
-            # Must have title and rank to be a story
-            title = data.get("title")
-            rank = data.get("rank")
-            if not title or rank is None:
-                continue
-
-            score = data.get("score")
-            descendants = data.get("descendants")
-            if score is None or descendants is None:
-                continue  # Skip stories with incomplete data
-
-            stories.append({
-                "rank": rank,
-                "title": title,
-                "score": score,
-                "comments": descendants,
-                "author": data.get("by", "unknown"),  # Display-only
-                "url": data.get("url", ""),  # Display-only
-            })
-
-        # Sort by rank and take top n
-        stories.sort(key=lambda x: x["rank"])
-        stories = stories[:n]
-
-        if len(stories) < n:
-            available_ranks = sorted([s["rank"] for s in stories])
-            return GroundTruthResult.not_collected(
-                f"Only {len(stories)} stories collected (need {n}). "
-                f"Available ranks: {available_ranks}. "
-                f"Agent needs to visit HN homepage to see all stories."
-            )
+        stories = [
+            {
+                "rank": item["rank"],
+                "title": item["title"],
+                "score": item["score"],
+                "comments": item["descendants"],
+                "author": item.get("by", "unknown"),
+                "url": item.get("url", ""),
+            }
+            for item in stories_raw
+        ]
 
         # Build structured GT
         gt_data = {
@@ -242,14 +210,11 @@ Calculate weighted total. Output JSON: {{"score": <0.0-1.0>, "reasoning": "<brie
         stories = gt_data["stories"]
 
         # Count how many story titles are mentioned in the answer
-        answer_lower = answer.lower()
         covered = 0
         for story in stories:
             title = story["title"].lower()
             # Check if title words appear in answer (fuzzy match)
-            title_words = [w for w in title.split() if len(w) > 3]
-            matches = sum(1 for w in title_words if w in answer_lower)
-            if matches >= len(title_words) * 0.5:
+            if title_partial_match(title, answer, min_ratio=0.5):
                 covered += 1
 
         coverage_ratio = covered / len(stories) if stories else 0
@@ -270,16 +235,3 @@ Calculate weighted total. Output JSON: {{"score": <0.0-1.0>, "reasoning": "<brie
             actual=answer[:200],
             details=f"Covered only {covered}/{len(stories)} stories",
         )
-
-    def get_ground_truth_trigger(self, validation_info: Dict[str, Any]) -> TriggerConfig:
-        """Trigger on HN domain visits."""
-        trigger = UrlPatternTrigger(domains=["news.ycombinator.com"])
-        return TriggerConfig(trigger=trigger)
-
-    @classmethod
-    def get_cache_source(cls) -> str:
-        return "hackernews"
-
-    def get_gt_source(self) -> GTSourceType:
-        return self.GT_SOURCE
-

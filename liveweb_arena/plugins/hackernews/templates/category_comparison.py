@@ -14,12 +14,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 from liveweb_arena.core.validators.base import (
-    QuestionTemplate, GeneratedQuestion, ValidationResult, register_template,
+    GeneratedQuestion, ValidationResult, register_template,
 )
 from liveweb_arena.core.ground_truth_trigger import (
-    UrlPatternTrigger, TriggerConfig, GroundTruthResult
+    GroundTruthResult
 )
-from liveweb_arena.core.gt_collector import GTSourceType, get_current_gt_collector
+
+from .base import HackerNewsTemplateBase
+from .common import extract_first_number, get_category_stories
 
 
 @dataclass
@@ -27,13 +29,12 @@ class CategorySpec:
     """Specification for an HN category."""
     name: str       # Display name
     slug: str       # URL slug
-    api_key: str    # Key in collected data
 
 
 # Available categories for comparison
 CATEGORIES = [
-    CategorySpec("Ask HN", "ask", "ask"),
-    CategorySpec("Show HN", "show", "show"),
+    CategorySpec("Ask HN", "ask"),
+    CategorySpec("Show HN", "show"),
 ]
 # Note: Jobs category excluded - job posts typically have no comments
 
@@ -70,7 +71,7 @@ def _get_category_pairs() -> List[Tuple[CategorySpec, CategorySpec]]:
 
 
 @register_template("hackernews_category_comparison")
-class HackerNewsCategoryComparisonTemplate(QuestionTemplate):
+class HackerNewsCategoryComparisonTemplate(HackerNewsTemplateBase):
     """
     Template for cross-category comparison queries on HN.
 
@@ -82,8 +83,6 @@ class HackerNewsCategoryComparisonTemplate(QuestionTemplate):
     - Navigation skill: Tests understanding of site structure
     - Computation: Must compare values from different sources
     """
-
-    GT_SOURCE = GTSourceType.PAGE_ONLY
 
     # Which rank positions to compare within categories
     RANK_OPTIONS = [1, 2, 3]
@@ -203,26 +202,24 @@ class HackerNewsCategoryComparisonTemplate(QuestionTemplate):
 
     def _get_category_story_value(
         self,
-        collected: Dict[str, Any],
-        category_slug: str,
+        category_stories: List[Dict[str, Any]],
         rank: int,
         metric_field: str,
-    ) -> Optional[int]:
+    ) -> Tuple[Optional[int], Optional[GroundTruthResult]]:
         """Get metric value for a story at given rank in category."""
-        # Look for category-specific data
-        category_key = f"hn_category:{category_slug}"
-        if category_key in collected:
-            category_data = collected[category_key]
-            stories = category_data.get("stories")
-            if not stories:
-                return None
-            for story_id, story_data in stories.items():
-                if isinstance(story_data, dict) and story_data.get("rank") == rank:
-                    value = story_data.get(metric_field)
-                    if value is not None:
-                        return int(value)
-
-        return None
+        for story_data in category_stories:
+            if story_data.get("rank") != rank:
+                continue
+            value = story_data.get(metric_field)
+            if value is not None:
+                try:
+                    return int(value), None
+                except (TypeError, ValueError):
+                    return None, GroundTruthResult.system_error(
+                        f"Invalid numeric value for {metric_field} at category rank {rank}"
+                    )
+            return None, None
+        return None, None
 
     async def get_ground_truth(self, validation_info: Dict[str, Any]) -> GroundTruthResult:
         """Calculate ground truth from collected API data."""
@@ -234,13 +231,33 @@ class HackerNewsCategoryComparisonTemplate(QuestionTemplate):
         cat1_name = validation_info.get("category1_name", "")
         cat2_name = validation_info.get("category2_name", "")
 
-        gt_collector = get_current_gt_collector()
-        if gt_collector is None:
-            return GroundTruthResult.system_error("No GT collector")
+        cat1_stories, fail1 = get_category_stories(
+            category_slug=cat1_slug,
+            upto_rank=rank,
+            required_fields=(metric_field,),
+        )
+        if fail1 is not None:
+            if fail1.is_system_error():
+                return fail1
+            return GroundTruthResult.not_collected(
+                fail1.error
+                or f"#{rank} story in {cat1_name} not found. "
+                f"Agent needs to visit {cat1_name} category page."
+            )
 
-        collected = gt_collector.get_collected_api_data()
-        if not collected:
-            return GroundTruthResult.fail("No HN data collected")
+        cat2_stories, fail2 = get_category_stories(
+            category_slug=cat2_slug,
+            upto_rank=rank,
+            required_fields=(metric_field,),
+        )
+        if fail2 is not None:
+            if fail2.is_system_error():
+                return fail2
+            return GroundTruthResult.not_collected(
+                fail2.error
+                or f"#{rank} story in {cat2_name} not found. "
+                f"Agent needs to visit {cat2_name} category page."
+            )
 
         # For SUM_COMPARE, we need all ranks from 1 to rank
         if mode == "sum_compare":
@@ -250,8 +267,12 @@ class HackerNewsCategoryComparisonTemplate(QuestionTemplate):
             missing2 = []
 
             for r in range(1, rank + 1):
-                val1 = self._get_category_story_value(collected, cat1_slug, r, metric_field)
-                val2 = self._get_category_story_value(collected, cat2_slug, r, metric_field)
+                val1, err1 = self._get_category_story_value(cat1_stories, r, metric_field)
+                if err1 is not None:
+                    return err1
+                val2, err2 = self._get_category_story_value(cat2_stories, r, metric_field)
+                if err2 is not None:
+                    return err2
 
                 if val1 is not None:
                     sum1 += val1
@@ -279,8 +300,12 @@ class HackerNewsCategoryComparisonTemplate(QuestionTemplate):
             return GroundTruthResult.ok(cat1_name if sum1 > sum2 else cat2_name)
 
         # For single-rank comparisons
-        val1 = self._get_category_story_value(collected, cat1_slug, rank, metric_field)
-        val2 = self._get_category_story_value(collected, cat2_slug, rank, metric_field)
+        val1, err1 = self._get_category_story_value(cat1_stories, rank, metric_field)
+        if err1 is not None:
+            return err1
+        val2, err2 = self._get_category_story_value(cat2_stories, rank, metric_field)
+        if err2 is not None:
+            return err2
 
         if val1 is None:
             return GroundTruthResult.not_collected(
@@ -368,10 +393,8 @@ class HackerNewsCategoryComparisonTemplate(QuestionTemplate):
             )
 
         else:  # difference mode
-            import re
-            # Handle signed numbers
-            numbers = re.findall(r'-?\d+', answer)
-            if not numbers:
+            actual_num = extract_first_number(answer, signed=True, allow_float=False)
+            if actual_num is None:
                 return ValidationResult(
                     score=0.0,
                     is_correct=False,
@@ -381,7 +404,7 @@ class HackerNewsCategoryComparisonTemplate(QuestionTemplate):
                 )
 
             try:
-                actual_value = int(numbers[0])
+                actual_value = int(actual_num)
                 expected_value = int(expected)
             except ValueError:
                 return ValidationResult(
@@ -410,16 +433,3 @@ class HackerNewsCategoryComparisonTemplate(QuestionTemplate):
                 actual=answer,
                 details=f"Outside tolerance: expected {expected_value}, got {actual_value}",
             )
-
-    def get_ground_truth_trigger(self, validation_info: dict) -> TriggerConfig:
-        """Trigger on HN domain visits."""
-        trigger = UrlPatternTrigger(domains=["news.ycombinator.com"])
-        return TriggerConfig(trigger=trigger)
-
-    @classmethod
-    def get_cache_source(cls) -> str:
-        return "hackernews"
-
-    def get_gt_source(self) -> GTSourceType:
-        return self.GT_SOURCE
-
