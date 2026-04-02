@@ -521,7 +521,8 @@ async def fetch_single_asset_data(symbol: str) -> Optional[Dict[str, Any]]:
 
         except StooqRateLimitError:
             raise
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to fetch {sym} from Stooq: {e}")
             continue
 
     # All variants failed — add to negative cache

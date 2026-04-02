@@ -344,8 +344,8 @@ def _is_file_cache_valid() -> bool:
         cached = json.loads(cache_file.read_text())
         if time.time() - cached.get("_fetched_at", 0) < _get_cache_ttl():
             return bool(cached.get("subnets"))
-    except Exception:
-        pass
+    except Exception as e:
+        log("Taostats", f"File cache read error in _is_file_cache_valid: {e}", force=True)
     return False
 
 
@@ -375,8 +375,8 @@ def _load_file_cache() -> Optional[dict]:
             subnets = cached.get("subnets", {})
             if subnets:
                 return _sanitize_subnet_names(subnets)
-    except Exception:
-        pass
+    except Exception as e:
+        log("Taostats", f"File cache read error in _load_file_cache: {e}", force=True)
     return None
 
 
