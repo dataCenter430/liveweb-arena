@@ -383,13 +383,51 @@ class GTCollector:
                     return f"+{len(api_data['stories'])} {category} stories"
                 else:
                     # Homepage: store individual stories
+                    current_homepage_ids = {str(story_id) for story_id in api_data["stories"].keys()}
+                    stale_rank_cleared = 0
+                    for key, existing in list(self._collected_api_data.items()):
+                        # Skip non-story entries and stories still on current homepage.
+                        if key in current_homepage_ids:
+                            continue
+                        if key.startswith(("user:", "hn_category:", "external:", "hn_external:")):
+                            continue
+                        if not isinstance(existing, dict):
+                            continue
+                        if not isinstance(existing.get("rank"), int):
+                            continue
+
+                        # Story dropped off homepage: clear stale homepage rank so
+                        # downstream rank uniqueness checks only see current homepage.
+                        updated_existing = dict(existing)
+                        updated_existing.pop("rank", None)
+                        self._collected_api_data[key] = updated_existing
+                        stale_rank_cleared += 1
+
                     added = 0
+                    updated = 0
                     for story_id, data in api_data["stories"].items():
-                        if story_id not in self._collected_api_data:
+                        existing = self._collected_api_data.get(story_id)
+                        if isinstance(existing, dict):
+                            merged = dict(existing)
+                            # Homepage data should refresh rank, but must not overwrite
+                            # authoritative detail-page fields already collected.
+                            if "rank" in data:
+                                merged["rank"] = data["rank"]
+                            for field, value in data.items():
+                                if field == "rank":
+                                    continue
+                                if field not in merged:
+                                    merged[field] = value
+                            self._collected_api_data[story_id] = merged
+                            updated += 1
+                        else:
                             self._collected_api_data[story_id] = data
                             added += 1
-                    if added > 0:
-                        return f"+{added} stories"
+                    if added > 0 or updated > 0 or stale_rank_cleared > 0:
+                        return (
+                            f"+{added} stories, ~{updated} refreshed, "
+                            f"-{stale_rank_cleared} stale ranks"
+                        )
                     return None
             elif "id" in api_data and "title" in api_data:
                 # Story detail page: merge with existing data, preserving rank
