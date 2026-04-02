@@ -324,13 +324,54 @@ def _is_file_cache_valid() -> bool:
     return False
 
 
+def _sync_fetch_homepage_assets() -> Dict[str, Any]:
+    """Fetch homepage assets using synchronous urllib (no asyncio).
+
+    This is used exclusively by ``initialize_cache`` which runs in a
+    synchronous context (uvicorn worker startup).  Using ``urllib`` instead
+    of ``aiohttp`` avoids the need for ``ThreadPoolExecutor + asyncio.run``,
+    which can hang permanently when aiohttp connections stall inside a
+    secondary event loop — holding the ``fcntl.flock`` and blocking all
+    other workers.
+    """
+    import urllib.request
+
+    symbols = _get_all_symbols()
+    assets: Dict[str, Any] = {}
+
+    for symbol in symbols:
+        try:
+            url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                text = resp.read().decode()
+
+            if "Exceeded the daily hits limit" in text:
+                _set_daily_limited()
+                logger.error("Stooq API daily limit exceeded during sync init")
+                break
+
+            if "No data" in text:
+                continue
+
+            parsed = _parse_stooq_csv(text, symbol)
+            if parsed:
+                assets[symbol] = parsed
+
+            time.sleep(_global_csv_limiter.min_interval)
+        except Exception:
+            continue
+
+    return assets
+
+
 def initialize_cache():
     """
     Pre-warm homepage file cache synchronously.
 
-    Called by plugin.initialize() before evaluation starts (no timeout pressure).
-    Uses file lock to prevent multiple instances from fetching simultaneously.
-    If file cache is valid, this is a no-op.
+    Called by plugin.initialize() before evaluation starts.
+    Uses non-blocking file lock: if another worker is already refreshing,
+    this worker skips and uses stale data (or proceeds without pre-warming).
     """
     import fcntl
 
@@ -339,27 +380,52 @@ def initialize_cache():
         logger.info("Stooq init: homepage cache valid (quick check)")
         return
 
-    # Acquire file lock — only one process fetches, others wait
+    # Non-blocking lock — if another worker is already fetching, skip
     lock_path = _get_file_cache_path().with_suffix(".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = open(lock_path, "w")
     try:
-        fcntl.flock(fd.fileno(), fcntl.LOCK_EX)  # Blocking wait
+        # Try non-blocking first; if another worker holds the lock, wait
+        # up to 90 seconds (enough for a full sync fetch) instead of forever.
+        try:
+            fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            logger.info("Stooq init: lock held by another worker, waiting up to 90s...")
+            import signal
+            def _timeout_handler(signum, frame):
+                raise TimeoutError("flock wait exceeded 90s")
+            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(90)
+            try:
+                fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+                signal.alarm(0)
+            except TimeoutError:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+                logger.warning("Stooq init: lock wait timed out, proceeding without cache")
+                return
+            finally:
+                signal.signal(signal.SIGALRM, old_handler)
 
         # Re-check after acquiring lock — another process may have filled cache
         if _is_file_cache_valid():
             logger.info("Stooq init: homepage cache filled by another process")
             return
 
-        # Fetch and cache
+        # Fetch using synchronous urllib (no asyncio, no ThreadPoolExecutor)
         logger.info("Stooq init: pre-warming homepage cache...")
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                pool.submit(lambda: asyncio.run(fetch_homepage_api_data())).result()
+        assets = _sync_fetch_homepage_assets()
+
+        if assets:
+            cache_file = _get_file_cache_path()
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps({
+                "assets": assets,
+                "_fetched_at": time.time(),
+            }))
+            logger.info(f"Stooq init: saved {len(assets)} assets to file cache")
         else:
-            asyncio.run(fetch_homepage_api_data())
+            logger.warning("Stooq init: no assets fetched (API may be unavailable)")
     finally:
         fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
         fd.close()

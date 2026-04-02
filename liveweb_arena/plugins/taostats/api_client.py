@@ -380,13 +380,60 @@ def _load_file_cache() -> Optional[dict]:
     return None
 
 
+def _sync_fetch_all_subnets() -> Dict[str, Any]:
+    """Fetch all subnets using synchronous urllib (no asyncio).
+
+    Used exclusively by ``initialize_cache`` to avoid the
+    ``ThreadPoolExecutor + asyncio.run`` pattern that can hang permanently
+    when aiohttp connections stall inside a secondary event loop.
+    """
+    import urllib.request
+
+    url = f"{API_BASE_URL}/subnets?limit=200"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+
+    last_error = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode())
+
+            results = data.get("results", [])
+            subnets: Dict[str, Any] = {}
+            for subnet in results:
+                if not isinstance(subnet, dict):
+                    continue
+                try:
+                    normalized = _normalize_subnet(subnet)
+                    netuid = str(normalized.get("netuid", ""))
+                    if netuid:
+                        subnets[netuid] = normalized
+                except Exception:
+                    continue
+
+            if subnets:
+                return {"subnets": subnets}
+            last_error = APIFetchError("No usable subnets", source="taostats")
+
+        except Exception as e:
+            last_error = e
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(BACKOFF_BASE_SECONDS * (2 ** attempt))
+
+    raise APIFetchError(
+        f"Sync fetch failed after {MAX_RETRIES} retries: {last_error}",
+        source="taostats",
+    )
+
+
 def initialize_cache():
     """
     Initialize subnet cache synchronously.
 
     Must be called before generating taostats questions.
-    Uses file lock to prevent multiple instances from fetching simultaneously.
-    Checks file cache first, falls back to API fetch.
+    Uses non-blocking file lock: if another worker is already refreshing,
+    this worker skips (will use stale data or retry next call).
+    Uses synchronous urllib instead of aiohttp to avoid event loop issues.
     """
     import fcntl
 
@@ -400,12 +447,32 @@ def initialize_cache():
         _subnet_cache.set(_filter_by_emission(subnets))
         return
 
-    # 2. Acquire file lock — only one process fetches
+    # 2. Non-blocking lock — if another worker is fetching, skip
     lock_path = _get_file_cache_path().with_suffix(".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = open(lock_path, "w")
     try:
-        fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+        # Try non-blocking first; if another worker holds the lock, wait
+        # up to 90 seconds (enough for a full sync fetch) instead of forever.
+        try:
+            fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            log("Taostats", "Lock held by another worker, waiting up to 90s...")
+            import signal
+            def _timeout_handler(signum, frame):
+                raise TimeoutError("flock wait exceeded 90s")
+            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(90)
+            try:
+                fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+                signal.alarm(0)
+            except TimeoutError:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+                log("Taostats", "Lock wait timed out, proceeding without cache")
+                return
+            finally:
+                signal.signal(signal.SIGALRM, old_handler)
 
         # Re-check after lock — another process may have filled cache
         subnets = _load_file_cache()
@@ -414,23 +481,8 @@ def initialize_cache():
             _subnet_cache.set(_filter_by_emission(subnets))
             return
 
-        # 3. Fetch from API
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, fetch_all_subnets())
-                    data = future.result(timeout=60)
-            else:
-                data = loop.run_until_complete(fetch_all_subnets())
-        except APIFetchError:
-            raise
-        except RuntimeError as e:
-            if "no current event loop" in str(e).lower() or "no running event loop" in str(e).lower():
-                data = asyncio.run(fetch_all_subnets())
-            else:
-                raise
+        # 3. Fetch using synchronous urllib (no asyncio, no ThreadPoolExecutor)
+        data = _sync_fetch_all_subnets()
 
         subnets = data.get("subnets", {})
         if not subnets:
@@ -441,7 +493,7 @@ def initialize_cache():
             cache_file = _get_file_cache_path()
             cache_file.parent.mkdir(parents=True, exist_ok=True)
             cache_file.write_text(json.dumps({
-                "subnets": subnets,
+                "subnets": _sanitize_subnet_names(subnets),
                 "_fetched_at": time.time(),
             }))
             log("Taostats", f"Saved {len(subnets)} subnets to file cache")

@@ -218,7 +218,7 @@ def test_initialize_cache_fetches_and_writes_cache(tmp_path, monkeypatch):
     if cache_file.exists():
         cache_file.unlink()
 
-    async def _fake_fetch_all_subnets() -> Dict[str, Any]:
+    def _fake_sync_fetch() -> Dict[str, Any]:
         # Use 4 subnets so "top half" filtering keeps 2.
         return {
             "subnets": {
@@ -229,7 +229,7 @@ def test_initialize_cache_fetches_and_writes_cache(tmp_path, monkeypatch):
             }
         }
 
-    monkeypatch.setattr(taostats_api, "fetch_all_subnets", _fake_fetch_all_subnets)
+    monkeypatch.setattr(taostats_api, "_sync_fetch_all_subnets", _fake_sync_fetch)
 
     taostats_api.initialize_cache()
 
